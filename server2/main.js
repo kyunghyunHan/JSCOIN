@@ -6,16 +6,29 @@ const {
     Block, generateNextBlock, generatenextBlockWithTransaction, generateRawNextBlock, getAccountBalance,
     getBlockchain, getMyUnspentTransactionOutputs, getUnspentTxOuts, sendTransaction
 } =require('./blockchain') ;
-const {connectToPeers, getSockets, initP2PServer,broadcast} =require('./p2p') ;
+const { getSockets, initConnection } = require("./p2p");
 const {getTransactionPool} =require('./transactionPool') ;
 const {getPublicFromWallet, initWallet} =require('./wallet') ;
 const httpPort = parseInt(process.env.HTTP_PORT) || 3002;
 const p2pPort = parseInt(process.env.P2P_PORT) || 6002;
+const { sequelize } = require("./models");
 /**이 서버를 사용하여 다음과 같은 걸 할거에요.
 
 블록의 리스트 가져오기
 새로운 블록을 만들기
 노드 목록을 가져오거나 새로운 노드를 추가하기 curl명령어로도 노드를 제어할 수 있어요. */
+sequelize
+  .sync({ force: false })
+  .then(() => {
+    console.log("DB Ready");
+    BlcokChainDB.findAll().then((bc) => {
+      dbBlockCheck(bc);
+    });
+  })
+  .catch((err) => {
+    console.error(err);
+  });
+
 const initHttpServer = (myHttpPort) => {
     const app = express();
     app.use(cors());
@@ -100,13 +113,29 @@ const initHttpServer = (myHttpPort) => {
     app.get('/transactionPool', (req, res) => {
         res.send(getTransactionPool());
     });
-    app.get('/peers', (req, res) => {
-        res.send(getSockets().map((s) => s._socket.remoteAddress + ':' + s._socket.remotePort));
-    });
-    app.post('/addPeer', (req, res) => {
-        connectToPeers(req.body.peer);
-        res.send();
-    });
+    app.get("/peers", (req, res) => {
+        let socketinfo = [];
+        getSockets().forEach((S) => {
+          socketinfo.push(S._socket.remoteAddress + " : " + S._socket.remotePort);
+        });
+        console.log(socketinfo.length);
+        res.send(socketinfo);
+      });
+    
+    app.post("/addPeers", (req, res) => {
+        const WebSocket = require("ws");
+        const peers = req.body.peers || [];
+    
+        const ws = new WebSocket(peers);
+        ws.on("open", () => {
+          initConnection(ws), res.send("Peer 연결완료");
+        });
+        ws.on("error", () => {
+          res.send("Peer 연결실패");
+        });
+    
+      });
+    
     app.post('/stop', (req, res) => {
         res.send({ 'msg': 'stopping server' });
         process.exit();
@@ -116,7 +145,6 @@ const initHttpServer = (myHttpPort) => {
     });
 };
 initHttpServer(httpPort);
-initP2PServer(p2pPort);
 initWallet();
 
 

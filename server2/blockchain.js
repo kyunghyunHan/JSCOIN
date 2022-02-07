@@ -5,6 +5,7 @@ const { getCoinbaseTransaction, isValidAddress, processTransactions } =require('
 const { addToTransactionPool, getTransactionPool, updateTransactionPool } =require('./transactionPool') ;
 const { hexToBinary } =require('./util') ;
 const { createTransaction, findUnspentTxOuts, getBalance, getPrivateFromWallet, getPublicFromWallet } =require('./wallet') ;
+const { BlcokChainDB, CoinDB } = require("./models");
 /*Index: 블록체인에서 해당 블록의 순서
 Data: 블록에 담긴 데이터
 Timestamp: 타임스템프
@@ -54,7 +55,8 @@ const setUnspentTxOuts = (newUnspentTxOut) => {
     console.log('unspentTxouts 대체: %s', newUnspentTxOut);
     unspentTxOuts = newUnspentTxOut;
 };
-const getLatestBlock = () => blockchain[blockchain.length - 1];
+function getLatestBlock(){
+    return blockchain[blockchain.length - 1];} 
 //초
 
 /**우리는 이제 주어진 difficulty값을 가지고 해시값을 찾고, 그 값이 유효한지 검증할 수 있게 되었어요. 
@@ -245,6 +247,7 @@ const isValidChain = (blockchainToValidate) => {
     console.log(JSON.stringify(blockchainToValidate));
     const isValidGenesis = (block) => {
         return JSON.stringify(block) === JSON.stringify(genesisBlock);
+        
     };
     if (!isValidGenesis(blockchainToValidate[0])) {
         
@@ -277,8 +280,16 @@ const addBlockToChain = (newBlock) => {
         }
         else {
             blockchain.push(newBlock);
+            
             setUnspentTxOuts(retVal);
             updateTransactionPool(unspentTxOuts);
+            BlcokChainDB.create({
+                BlockChain: newBlock,
+                Coin: 50,
+              });
+              CoinDB.create({
+                Coin: 50,
+              });
             return true;
         }
     }
@@ -290,7 +301,7 @@ const addBlockToChain = (newBlock) => {
 노드 간에 연결될 때, 각자 지니고 있는 가장 마지막 블록이 무엇인지를 파악한다.
 자기보다 긴 체인과 연결되면 상대가 가진 블록 중 내가 가진 블록 이후의 모든 블록을 추가하여 싱크를 맞춘다.
  */
-const replaceChain = (newBlocks) => {
+async function replaceChain (newBlocks)  {
     const aUnspentTxOuts = isValidChain(newBlocks);
     const validChain = aUnspentTxOuts !== null;
     if (validChain &&
@@ -300,6 +311,10 @@ const replaceChain = (newBlocks) => {
         setUnspentTxOuts(aUnspentTxOuts);
         updateTransactionPool(unspentTxOuts);
         broadcast();
+        BlcokChainDB.destroy({ where: {}, truncate: true });
+        for (let i = 0; i < newBlocks.length; i++) {
+            await BlcokChainDB.create({ BlockChain: newBlocks[i] });
+          }
     }
     else {
         console.log('Received blockchain invalid(수신된 블록체인이 유효하지 않음)');
@@ -308,4 +323,43 @@ const replaceChain = (newBlocks) => {
 const handleReceivedTransaction = (transaction) => {
     addToTransactionPool(transaction, getUnspentTxOuts());
 };
-module.exports= { Block, getBlockchain, getUnspentTxOuts, getLatestBlock, sendTransaction, generateRawNextBlock, generateNextBlock, generatenextBlockWithTransaction, handleReceivedTransaction, getMyUnspentTransactionOutputs, getAccountBalance, isValidBlockStructure, replaceChain, addBlockToChain,calculateHash};
+
+
+function dbBlockCheck(DBBC) {
+    let bc = [];
+    DBBC.forEach((blockchain) => {
+      bc.push(blockchain.BlockChain);
+    });
+  
+    if (bc.length === 0) {
+      BlcokChainDB.create({ BlockChain: creatGenesisBlock() });
+      bc.push(creatGenesisBlock());
+    }
+    const DBBlock = bc[bc.length - 1];
+    const latesMyBlock = getLastBlock();
+  
+    if (DBBlock.index < latesMyBlock.index) {
+      console.log(
+        "DB 시작전  \n" +
+        `DB 블록의 index 값 ${DBBlock.index}\n` +
+        `현재 보유중인 index값 ${latesMyBlock.index}\n`
+      );
+  
+      if (createHash(DBBlock) === latesMyBlock.previousHash) {
+        console.log(`DB에 다음 블록 추가`);
+        BlcokChainDB.create({
+          BlockChain: latesMyBlock,
+        }).catch((err) => {
+          console.log(err);
+          throw err;
+        });
+      } else {
+        console.log(`DB 초기화중`);
+        replaceChain(getBlocks());
+      }
+    } else {
+      console.log("DB 초기화 완료");
+      Blocks = bc;
+    }
+  }
+module.exports= { Block, getBlockchain, getUnspentTxOuts, getLatestBlock, sendTransaction, generateRawNextBlock, generateNextBlock, generatenextBlockWithTransaction, handleReceivedTransaction, getMyUnspentTransactionOutputs, getAccountBalance, isValidBlockStructure, replaceChain, addBlockToChain,calculateHash,dbBlockCheck};

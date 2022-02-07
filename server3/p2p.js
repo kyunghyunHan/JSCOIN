@@ -1,181 +1,149 @@
+const p2p_port = process.env.P2P_PORT || 6003;
 const WebSocket = require("ws");
-const BC = require("./blockchain");
-const TX = require("./transaction");
-const TP = require("./transactionPool");
-const sockets = [];
+const {getLatestBlock}=require("./blockchain")
+const {
+    addBlockToChain,
+  replaceChain,
+  getBlockchain,
+  createHash,
+} = require("./blockchain");
+//
+function initP2PServer() {
+  const server = new WebSocket.Server({ port: p2p_port });
+  server.on("connection", (ws) => {
+    initConnection(ws);
+  });
+  console.log(p2p_port + "번 포트 대기중...");
+}
+
+initP2PServer();
+
+let sockets = [];
+function getSockets() {
+  return sockets;
+}
+function initConnection(ws) {
+  sockets.push(ws);
+  initErrorHandler(ws);
+  initMessageHandler(ws);
+
+  write(ws, queryLatesmsg());
+}
+
+function write(ws, message) {
+  ws.send(JSON.stringify(message));
+}
+
+function broadcast(message) {
+  sockets.forEach((socket) => {
+    write(socket, message);
+  });
+}
 
 const MessageType = {
   QUERY_LATEST: 0,
   QUERY_ALL: 1,
   RESPONSE_BLOCKCHAIN: 2,
-  //트랜젝션 메시지
-  QUERY_TRANSACTION_POOL: 3,
-  RESPONSE_TRANSACTION_POOL: 4,
 };
 
-
-const initP2PServer = (p2pPort) => {
-  const server = new WebSocket.Server({ port: p2pPort });
-  server.on("connection", (ws) => {
-    initConnection(ws);
-  });
-  console.log(p2pPort + "번 포트 대기중...");
-};
-
-const getSockets = () => sockets;
-
-const initConnection = (ws) => {
-  sockets.push(ws);
-  initMessageHandler(ws);
-  initErrorHandler(ws);
-  write(ws, queryChainLengthMsg());
-  setTimeout(() => {
-    broadcast(queryTransactionPoolMsg());
-  }, 500);
-};
-
-const initMessageHandler = (ws) => {
-  const { handleReceivedTransaction } = require("./blockchain");
+function initMessageHandler(ws) {
   ws.on("message", (data) => {
-    try {
-      const message = JSON.parse(data);
-      if (message === null) {
-        console.log(data + "에 메시지가 빈값입니다.");
-        return;
-      }
-      switch (message.type) {
-        case MessageType.QUERY_LATEST:
-          write(ws, responseLatestMsg());
-          break;
-        case MessageType.QUERY_ALL:
-          write(ws, responseChainMsg());
-          break;
-        case MessageType.RESPONSE_BLOCKCHAIN:
-          const receivedBlocks = JSON.parse(message.data);
-          if (receivedBlocks === null) {
-            break;
-          }
-          handleBlockchainResponse(receivedBlocks);
-          break;
-        case MessageType.QUERY_TRANSACTION_POOL:
-          write(ws, responseTransactionPoolMsg());
-          break;
-        case MessageType.RESPONSE_TRANSACTION_POOL:
-          const receivedTransactions = JSON.parse(message.data);
-          receivedTransactions.forEach((transaction) => {
-            try {
-              handleReceivedTransaction(transaction);
-              broadCastTransactionPool();
-            } catch (e) {
-              console.log(e.message);
-            }
-          });
-          break;
-      }
-    } catch (e) {
-      console.log(e);
+    const message = JSON.parse(data);
+    switch (message.type) {
+      case MessageType.QUERY_LATEST:
+        write(ws, responseLatestMsg());
+        break;
+      case MessageType.QUERY_ALL:
+        write(ws, responseAllChainMsg());
+        break;
+        ``;
+      case MessageType.RESPONSE_BLOCKCHAIN:
+        handleBolckChainResponse(message);
+        break;
     }
   });
-};
-
-const write = (ws, message) => ws.send(JSON.stringify(message));
-
-const broadcast = (message) =>
-  sockets.forEach((socket) => write(socket, message));
-
-const queryChainLengthMsg = () => ({
-  type: MessageType.QUERY_LATEST,
-  data: null,
-});
-
-const queryAllMsg = () => ({ type: MessageType.QUERY_ALL, data: null });
-
-function responseChainMsg() {
-  const { getBlockchain } = require("./blockchain");
-  return {
-    type: MessageType.RESPONSE_BLOCKCHAIN,
-    data: JSON.stringify(getBlockchain()),
-  };
 }
 
 function responseLatestMsg() {
-  const { getLatestBlock } = require("./blockchain");
   return {
     type: MessageType.RESPONSE_BLOCKCHAIN,
     data: JSON.stringify([getLatestBlock()]),
   };
 }
-
-const queryTransactionPoolMsg = () => ({
-  type: MessageType.QUERY_TRANSACTION_POOL,
-  data: null,
-});
-
-const responseTransactionPoolMsg = () => ({
-  type: MessageType.RESPONSE_TRANSACTION_POOL,
-  data: JSON.stringify(TP.getTransactionPool()),
-});
-
-const initErrorHandler = (ws) => {
-  const closeConnection = (myWs) => {
-    sockets.splice(sockets.indexOf(myWs), 1);
+function responseAllChainMsg() {
+  return {
+    type: MessageType.RESPONSE_BLOCKCHAIN,
+    data: JSON.stringify(getBlocks()),
   };
-  ws.on("close", () => closeConnection(ws));
-  ws.on("error", () => closeConnection(ws));
-};
+}
 
-const handleBlockchainResponse = (receivedBlocks) => {
-  const {
-    isValidBlockStructure,
-    getLatestBlock,
-    replaceChain,
-    addBlockToChain,
-  } = require("./blockchain");
-  if (receivedBlocks.length === 0) {
-    return;
-  }
+function handleBolckChainResponse(message) {
+  const receiveBlocks = message.data;
+  const latestReceiveBlock = receiveBlocks[receiveBlocks.length - 1];
+  const latesMyBlock = getLastBlock();
 
-  const latestBlockReceived = receivedBlocks[receivedBlocks.length - 1];
+  if (latestReceiveBlock.header.index > latesMyBlock.header.index) {
+    console.log(
+      "블록의 총갯수\n" +
+        `전달받은 블록의 index값 ${latestReceiveBlock.header.index}\n` +
+        `현재 보유중인 index값 ${latesMyBlock.header.index}\n`
+    );
 
-  if (!isValidBlockStructure(latestBlockReceived)) {
-    return;
-  }
-  const latestBlockHeld = getLatestBlock();
-  if (latestBlockReceived.index > latestBlockHeld.index) {
-    if (latestBlockHeld.hash === latestBlockReceived.previousHash) {
-      if (addBlockToChain(latestBlockReceived)) {
+    if (createHash(latesMyBlock) === latestReceiveBlock.header.previousHash) {
+      console.log(
+        `내 최신 해시값=남 이전 해시값`
+      );
+
+      if (addBlockToChain(latestReceiveBlock)) {
         broadcast(responseLatestMsg());
+        console.log("블록 추가\n");
+      } else {
+        console.log("유효하지 않은 블록입니다.");
       }
-    } else if (receivedBlocks.length === 1) {
-      broadcast(queryAllMsg());
+    } else if (receiveBlocks.length === 1) {
+      console.log(`Peer로부터 연결 필요\n`);
+      broadcast(queryAllmsg());
     } else {
-      replaceChain(receivedBlocks);
+      console.log(`Block renewal`);
+      replaceChain(receiveBlocks);
     }
+  } else {
+    console.log("Block initialized...");
   }
-};
+}
 
-const broadcastLatest = () => {
-  broadcast(responseLatestMsg());
-};
+function queryAllmsg() {
+  return {
+    type: MessageType.QUERY_ALL,
+    data: null,
+  };
+}
+function queryLatesmsg() {
+  return {
+    type: MessageType.QUERY_LATEST,
+    data: null,
+  };
+}
 
-const connectToPeers = (newPeer) => {
-  const ws = new WebSocket(newPeer);
-  ws.on("open", () => {
-    initConnection(ws), res.send("Peer 연결완료");
+function initErrorHandler(ws) {
+  ws.on("close", () => {
+    closeConnection(ws);
   });
   ws.on("error", () => {
-    res.send("Peer 연결실패");
+    closeConnection(ws);
   });
-};
-
-const broadCastTransactionPool = () => {
-  broadcast(responseTransactionPoolMsg());
-};
+}
+function closeConnection(ws) {
+  console.log(`connection close ${ws.url}`);
+  sockets.splice(sockets.indexOf(ws), 1);
+}
 
 module.exports = {
-  connectToPeers,
-  broadcastLatest,
-  broadCastTransactionPool,
-  initP2PServer,
+  initConnection,
+  write,
   getSockets,
+  broadcast,
+  responseLatestMsg,
+  sockets,
+  queryLatesmsg,
 };
