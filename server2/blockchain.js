@@ -391,7 +391,7 @@ const hashMatchesBlockContent = (block) => {
 const hashMatchesDifficulty = (hash, difficulty) => {
   const hashInBinary = hexToBinary(hash);
   const requiredPrefix = "0".repeat(difficulty);
-  return hashInBinary.startsWith(requiredPrefix);
+  return hash.startsWith(requiredPrefix);
 };
 
 // 전달받은 블록체인과 그 안의 트랜잭션들을 검증하고 그로부터 만들어낸 공용장부 반환받기

@@ -3,9 +3,9 @@ import axios from "axios";
 import { Row, Col, Card, Input } from "antd";
 import ButtonGroup from '@mui/material/ButtonGroup';
 import Button from '@mui/material/Button';
+import nine from "../images/9.png";
 
-
-function Port3() {
+function Port2() {
   const [blockData, setBlockData] = useState("");
   const [peer, setPeer] = useState("");
   const [peers, setPeers] = useState(" ");
@@ -25,6 +25,7 @@ function Port3() {
   const [sendAmount, setSendAmount] = useState("");
   const [coinBlocks, setCoinBlocks] = useState([]);
   const [transactionPool, setTransactionPool] = useState("");
+
 
   useEffect(() => {
     getTransactionPool();
@@ -95,7 +96,7 @@ function Port3() {
       alert("주소가 잘못되었어요 똑바로 좀 하세요");
     } else {
       await axios
-        .post(`http://localhost:3002/mineTransaction`, {
+        .post(`http://localhost:3003/mineTransaction`, {
           address: MoneyToAddress,
           amount: Money,
         })
@@ -114,7 +115,7 @@ function Port3() {
 
   const connect = async () => {
     await axios
-      .get(`http://localhost:3003/Blocks`)
+      .get(`http://localhost:3003/blocks`)
       .then((req) => setChainBlocks(req.data));
   };
 
@@ -131,7 +132,7 @@ function Port3() {
   };
 
   const getpeers = async () => {
-    axios.get(`http://localhost:3002/peers`).then((res) => setPeers(res.data));
+    axios.get(`http://localhost:3003/peers`).then((res) => setPeers(res.data));
   };
   if (peers.length === 0) {
     return setPeers(`연결된 피어가없어요`);
@@ -144,7 +145,7 @@ function Port3() {
       return alert(`peer내용을 넣어주세용`);
     }
     await axios
-      .post(`http://localhost:3002/addPeer`, {
+      .post(`http://localhost:3003/addPeer`, {
         peer: [`ws://localhost:${P}`],
       })
       .then((res) => alert(res.data));
@@ -154,10 +155,9 @@ function Port3() {
     console.log([blockchain.index]);
     setshownBlock((prevShownComments) => ({
       ...prevShownComments,
-      [blockchain.index]: !prevShownComments[blockchain.index],
+      [blockchain.header.index]: !prevShownComments[blockchain.header.index],
     }));
   };
-
 
 
   function handleWriteAddress(e) {
@@ -175,113 +175,102 @@ function Port3() {
 
   return (
     <div style={{ background: 'white' }}>
-    <br />
-    <Button color="error" style={{ marginTop: 5 }} variant="contained" type="dash" onClick={address}>
-      지갑(publicKey)
-    </Button>
-    <div className="wallet_bublic_key_div-content">{Wallet}</div>
-    <br />
-    <br />
-    <Button color="error" style={{ marginTop: 5 }} variant="contained" type="dash" onClick={getBalance}>
-    Coin
-    </Button>
-    <br />
-
-
-    <div className="wallet_bublic_key_div">
-      <div className="wallet_bublic_key_div-title">
-      </div>
-      <div>코인:{Balance}MIMI</div>
-    </div>
-    <br />
-    <br />
-    <Input
-        addonBefore="ws://localhost:"
-        placeholder=" ex)6001 "
-        onChange={(e) => {
-          setPeer(e.target.value);
-        }}
-        value={peer}
-      />
-    <ButtonGroup disableElevation color="error" variant="contained" size="medium">
-    <Button style={{ marginTop: 5 }} type="dashed" onClick={addPeer}>
-      피어연결
-    </Button>
-    <Button style={{ marginLeft: 40 }} type="dashed" onClick={getpeers}>
-      피어 연결목록확인
-    </Button>
-    </ButtonGroup>
-    <div className="tx_entry">
-      <Col span={3}>
-        얼마면 돼?
-        <Input
-          type="number"
-          onChange={(e) => {
-            setMoney(e.target.value);
-          }}
-          value={Money}
-        />
-      </Col>
-      <Col span={20}>
-        어디다가 보내줄까?
-        <Input
-          type="text"
-          onChange={(e) => {
-            setMoneyToAddress(e.target.value);
-          }}
-          value={MoneyToAddress}
-        />
-      </Col>
-    </div>
-    <Button color="error" style={{ marginTop: 5 }} variant="contained" type="dash" onClick={sendTransaction}>
-    코인 보내기
-    </Button>
-    <Button style={{ marginTop: 5 }} type="dashed" onClick={mineTransaction}>
-     트랜잭션 채굴
-    </Button>
-    <hr className="boundary_line"></hr>
-    수영장에서 뛰노는 아이들(tx)이 {transactionPool.length}개 있어요
-    <div className="pool_box">
-      (대충 수영장)
-      {transactionPool
-        ? transactionPool.map((txPool) => {
-            return <div className="pool_box-effect">⁽⁽◝(˙꒳˙)◜⁾⁾</div>;
-          })
-        : null}
-      
-      <div className="pool_box-effect">~</div>
-    </div>
-    <p>
-      {" "}
-      <b style={{ marginLeft: 10 }}></b> {peers}
-    </p>
-    <br />
-    <Input
-      type="number"
-      placeholder="보낼 지갑 주소를 적으세요"
-      onChange={(e) => {
-        setMoneyToAddress(e.target.value);
-      }}
-      value={Money}
-    />
-    <Input
-      type="text"
-      placeholder="보낼 코인의 양을 적으세요"
-      onChange={(e) => {
-        setMoneyToAddress(e.target.value);
-      }}
-      value={MoneyToAddress}
-    />
-    <ButtonGroup disableElevation color="error" variant="contained" size="medium">
-      <Button style={{ marginTop: 5 }} color="warning" variant="outlined" type="dash" onClick={console.log(transactionPool.length)}>
-        트랜젝션 내역
+      <br />
+      <Button color="error" style={{ marginTop: 5 }} variant="contained" type="dash" onClick={address}>
+        지갑(publicKey)
       </Button>
-      {/* {transactionPool
-        ? transactionPool.map((txPool) => {
-            return <div className="pool_box-effect">⁽⁽◝(˙꒳˙)◜⁾⁾</div>;
-          })
-        : null} */}
-    </ButtonGroup>
+      <div className="wallet_bublic_key_div-content">{Wallet}</div>
+      <br />
+      <br />
+      <Button color="error" style={{ marginTop: 5 }} variant="contained" type="dash" onClick={getBalance}>
+      Coin
+      </Button>
+      <br />
+
+
+      <div className="wallet_bublic_key_div">
+        <div className="wallet_bublic_key_div-title">
+        </div>
+        <div>코인:{Balance}MIMI</div>
+      </div>
+      <br />
+      <br />
+      <div>포트번호</div>
+      <Input
+        
+          placeholder=" ex)6002 "
+          onChange={(e) => {
+            setPeer(e.target.value);
+          }}
+          value={peer}
+        />
+      <ButtonGroup disableElevation color="error" variant="contained" size="medium">
+      <Button style={{ marginTop: 5 }} type="dashed" onClick={addPeer}>
+        피어연결
+      </Button>
+      <Button style={{ marginLeft: 40 }} type="dashed" onClick={getpeers}>
+        피어 연결목록확인
+      </Button>
+      {/* <Button style={{ marginTop: 5 }} type="dashed" onClick={getTransactionPool}>
+      트랜잭션풀이
+      </Button> */}
+      {/* <div>{transactionPool}</div> */}
+      <Button style={{ marginTop: 5 }} type="dashed" onClick={mineTransaction}>
+       자기트랜잭션
+      </Button>
+      </ButtonGroup>
+
+    
+      <hr className="boundary_line"></hr>
+     트랜잭션{transactionPool.length}개
+      <div className="pool_box">
+        {transactionPool
+          ? transactionPool.map((txPool) => {
+              return <div className="pool_box-effect">  <img src={nine}/></div>;
+            })
+          : null}
+       
+      </div>
+      <p>
+        {" "}
+        <b style={{ marginLeft: 10 }}></b> {peers}
+      </p>
+      <br />
+      <div className="tx_entry">
+        <Col span={3}>
+         보낼코인
+          <Input
+            type="number"
+            onChange={(e) => {
+              setMoney(e.target.value);
+            }}
+            value={Money}
+          />
+        </Col>
+        <Col span={20}>
+         주소
+          <Input
+            type="text"
+            onChange={(e) => {
+              setMoneyToAddress(e.target.value);
+            }}
+            value={MoneyToAddress}
+          />
+        </Col>
+      </div>
+      <ButtonGroup disableElevation color="error" variant="contained" size="medium">
+      <Button style={{ marginTop: 5 }} color="warning" variant="outlined" type="dash" onClick={sendTransaction}>
+     코인송금
+      </Button>
+        <Button style={{ marginTop: 5 }} color="warning" variant="outlined" type="dash" onClick={console.log(transactionPool.length)}>
+          트랜젝션 내역
+        </Button>
+        {/* {transactionPool
+          ? transactionPool.map((txPool) => {
+              return <div className="pool_box-effect">⁽⁽◝(˙꒳˙)◜⁾⁾</div>;
+            })
+          : null} */}
+      </ButtonGroup>
 
       <br />
       <br />
@@ -310,7 +299,7 @@ function Port3() {
       </ButtonGroup>
       {reverse.map((a) => {
         return (
-          <ul key={a.index}>
+          <ul key={JSON.stringify(a.index)}>
             <div
               onClick={() => {
                 toggleComment(a);
@@ -329,6 +318,7 @@ function Port3() {
                         <strong>고유 번호</strong>
                       </div>
                       <div>{a.index}  ({a.index + 1}번째 블록)</div>
+                 
                     </li>
                     <hr className="boundary_line"></hr>
                     <li>
@@ -407,4 +397,4 @@ function useInterval(callback, delay) {
   }, [delay]);
 }
 
-export default Port3;
+export default Port2;

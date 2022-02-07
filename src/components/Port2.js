@@ -3,6 +3,7 @@ import axios from "axios";
 import { Row, Col, Card, Input } from "antd";
 import ButtonGroup from '@mui/material/ButtonGroup';
 import Button from '@mui/material/Button';
+import nine from "../images/9.png";
 
 function Port2() {
   const [blockData, setBlockData] = useState("");
@@ -194,9 +195,10 @@ function Port2() {
       </div>
       <br />
       <br />
+      <div>포트번호</div>
       <Input
-          addonBefore="ws://localhost:"
-          placeholder=" ex)6001 "
+        
+          placeholder=" ex)6002 "
           onChange={(e) => {
             setPeer(e.target.value);
           }}
@@ -209,10 +211,34 @@ function Port2() {
       <Button style={{ marginLeft: 40 }} type="dashed" onClick={getpeers}>
         피어 연결목록확인
       </Button>
+      {/* <Button style={{ marginTop: 5 }} type="dashed" onClick={getTransactionPool}>
+      트랜잭션풀이
+      </Button> */}
+      {/* <div>{transactionPool}</div> */}
+      <Button style={{ marginTop: 5 }} type="dashed" onClick={mineTransaction}>
+       자기트랜잭션
+      </Button>
       </ButtonGroup>
+
+    
+      <hr className="boundary_line"></hr>
+     트랜잭션{transactionPool.length}개
+      <div className="pool_box">
+        {transactionPool
+          ? transactionPool.map((txPool) => {
+              return <div className="pool_box-effect">  <img src={nine}/></div>;
+            })
+          : null}
+       
+      </div>
+      <p>
+        {" "}
+        <b style={{ marginLeft: 10 }}></b> {peers}
+      </p>
+      <br />
       <div className="tx_entry">
         <Col span={3}>
-          얼마면 돼?
+         보낼코인
           <Input
             type="number"
             onChange={(e) => {
@@ -222,7 +248,7 @@ function Port2() {
           />
         </Col>
         <Col span={20}>
-          어디다가 보내줄까?
+         주소
           <Input
             type="text"
             onChange={(e) => {
@@ -232,66 +258,10 @@ function Port2() {
           />
         </Col>
       </div>
-      <Button style={{ marginTop: 5 }} type="dashed" onClick={sendTransaction}>
-        내 피같은 코인 숑숑 전송
-      </Button>
-      <Button style={{ marginTop: 5 }} type="dashed" onClick={mineTransaction}>
-        내 트랜잭션만 넣을어서 채굴할거임
-      </Button>
-      <hr className="boundary_line"></hr>
-      수영장에서 뛰노는 아이들(tx)이 {transactionPool.length}개 있어요
-      <div className="pool_box">
-        (대충 수영장)
-        {transactionPool
-          ? transactionPool.map((txPool) => {
-              return <div className="pool_box-effect">⁽⁽◝(˙꒳˙)◜⁾⁾</div>;
-            })
-          : null}
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-        <div className="pool_box-effect">~</div>
-      </div>
-      <p>
-        {" "}
-        <b style={{ marginLeft: 10 }}></b> {peers}
-      </p>
-      <br />
-      <Input
-        type="number"
-        placeholder="보낼 지갑 주소를 적으세요"
-        onChange={(e) => {
-          setMoneyToAddress(e.target.value);
-        }}
-        value={Money}
-      />
-      <Input
-        type="text"
-        placeholder="보낼 코인의 양을 적으세요"
-        onChange={(e) => {
-          setMoneyToAddress(e.target.value);
-        }}
-        value={MoneyToAddress}
-      />
       <ButtonGroup disableElevation color="error" variant="contained" size="medium">
-        <Button color="error" style={{ marginTop: 5 }} variant="contained" type="dash" onClick={sendTransaction}>
-          코인 보내기
-        </Button>
+      <Button style={{ marginTop: 5 }} color="warning" variant="outlined" type="dash" onClick={sendTransaction}>
+     코인송금
+      </Button>
         <Button style={{ marginTop: 5 }} color="warning" variant="outlined" type="dash" onClick={console.log(transactionPool.length)}>
           트랜젝션 내역
         </Button>
@@ -314,18 +284,40 @@ function Port2() {
         value={blockData}
       />
       <ButtonGroup disableElevation color="error" variant="contained" size="medium">
-        <Button
-          variant="contained"
-          size="large"
-          style={{ marginTop: 5, marginBottom: 10 }}
-          type=""
-          onClick={bcMaker}
-        >
-          블록 채굴
-        </Button>
-        <Button variant="outlined" color="warning" size="large" style={{ marginTop: 5, marginBottom: 10 }} type="dash" onClick={connect}>
-          블록체인 보기
-        </Button>
+      <Button
+        style={{ marginTop: 5, marginBottom: 10 }}
+        type="dashed"
+        onClick={bcMaker}
+      >
+        블록만들기 얍~
+      </Button>
+      <Button style={{ marginLeft: 30 }} type="dashed" onClick={connect}>
+        블록체인 목록 불러오기
+      </Button>
+      <Button
+        style={{ marginLeft: 30 }}
+        type="dashed"
+        onClick={() => {
+          alert("채굴을 시작합니당.");
+          setIsRunning(true); setOk(true);
+        }}
+      >
+        채굴
+      </Button>
+      <Button
+        style={{ marginLeft: 30 }}
+        type="dashed"
+        onClick={() => {
+          alert("채굴을 중지합니당.");
+          setOk(false);
+        }}
+      >
+        중지
+      </Button>
+      <div className="auto_mine_box">
+        <h1>자동 채굴양 {count}</h1>
+        <input value={delay} onChange={handleDelayChange} />
+      </div>
       </ButtonGroup>
       {reverse.map((a) => {
         return (
