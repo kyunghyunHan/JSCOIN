@@ -38,6 +38,28 @@ const initHttpServer = (myHttpPort) => {
             res.status(400).send(err.message);
         }
     });
+    app.post("/addPeers", (req, res) => {
+        const WebSocket = require("ws");
+        const peers = req.body.peers || [];
+    
+        const ws = new WebSocket(peers);
+        ws.on("open", () => {
+          initConnection(ws), res.send("Peer 연결완료");
+        });
+        ws.on("error", () => {
+          res.send("Peer 연결실패");
+        });
+      });
+    
+      app.get("/peers", (req, res) => {
+        let socketinfo = [];
+        getSockets().forEach((S) => {
+          socketinfo.push(S._socket.remoteAddress + " : " + S._socket.remotePort);
+        });
+        console.log(socketinfo.length);
+        res.send(socketinfo);
+      });
+    
     app.get('/blocks', (req, res) => {
       console.log(getBlockchain());
         res.send(getBlockchain());
@@ -113,28 +135,7 @@ const initHttpServer = (myHttpPort) => {
     app.get('/transactionPool', (req, res) => {
         res.send(getTransactionPool());
     });
-    app.get("/peers", (req, res) => {
-        let socketinfo = [];
-        getSockets().forEach((S) => {
-          socketinfo.push(S._socket.remoteAddress + " : " + S._socket.remotePort);
-        });
-        console.log(socketinfo.length);
-        res.send(socketinfo);
-      });
-    
-    app.post("/addPeers", (req, res) => {
-        const WebSocket = require("ws");
-        const peers = req.body.peers || [];
-    
-        const ws = new WebSocket(peers);
-        ws.on("open", () => {
-          initConnection(ws), res.send("Peer 연결완료");
-        });
-        ws.on("error", () => {
-          res.send("Peer 연결실패");
-        });
-    
-      });
+   
     
     app.post('/stop', (req, res) => {
         res.send({ 'msg': 'stopping server' });

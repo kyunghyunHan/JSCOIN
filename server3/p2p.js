@@ -5,7 +5,7 @@ const {
     addBlockToChain,
   replaceChain,
   getBlockchain,
-  createHash,
+  calculateHash,
 } = require("./blockchain");
 //
 function initP2PServer() {
@@ -73,7 +73,7 @@ function responseLatestMsg() {
 function responseAllChainMsg() {
   return {
     type: MessageType.RESPONSE_BLOCKCHAIN,
-    data: JSON.stringify(getBlocks()),
+    data: JSON.stringify(getBlockchain()),
   };
 }
 

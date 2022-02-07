@@ -6,7 +6,7 @@ const {
     Block, generateNextBlock, generatenextBlockWithTransaction, generateRawNextBlock, getAccountBalance,
     getBlockchain, getMyUnspentTransactionOutputs, getUnspentTxOuts, sendTransaction
 } =require('./blockchain') ;
-const { getSockets, initConnection } = require("./p2p");
+const { getSockets, initConnection ,sockets} = require("./p2p");
 const {getTransactionPool} =require('./transactionPool') ;
 const {getPublicFromWallet, initWallet} =require('./wallet') ;
 const httpPort = parseInt(process.env.HTTP_PORT) || 3003;
@@ -116,7 +116,7 @@ const initHttpServer = (myHttpPort) => {
     app.get("/peers", (req, res) => {
         let socketinfo = [];
         getSockets().forEach((S) => {
-          socketinfo.push(S._socket.remoteAddress + " : " + S._socket.remotePort);
+          socketinfo.push(S.sockets.remoteAddress + " : " + S.sockets.remotePort);
         });
         console.log(socketinfo.length);
         res.send(socketinfo);
