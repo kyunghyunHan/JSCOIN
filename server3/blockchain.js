@@ -55,7 +55,7 @@ const setUnspentTxOuts = (newUnspentTxOut) => {
     console.log('unspentTxouts 대체: %s', newUnspentTxOut);
     unspentTxOuts = newUnspentTxOut;
 };
-function getLatestBlock(){
+function getLastBlock(){
   return blockchain[blockchain.length - 1];} 
 //초
 
@@ -94,7 +94,7 @@ const getAdjustedDifficulty = (latestBlock, aBlockchain) => {
 };
 const getCurrentTimestamp = () => Math.round(new Date().getTime() / 1000);
 const generateRawNextBlock = (blockData) => {
-    const previousBlock = getLatestBlock();
+    const previousBlock = getLastBlock();
     const difficulty = getDifficulty(getBlockchain());
     const nextIndex = previousBlock.index + 1;
     const nextTimestamp = getCurrentTimestamp();
@@ -113,7 +113,7 @@ const getMyUnspentTransactionOutputs = () => {
 };
 /**다음으로 우리는 트랜젝션 풀에 들어온 트랜젝션을 블럭체인 상의 블럭으로 만드는 작업을 할 거에요. 그리 어렵지 않아요. 노드가 블럭을 채굴하는 작업을 시작할 때 트랜젝션 풀로부터 트랜젝션을 받아 새로운 예비블럭에 추가해 담는 거죠. */
 const generateNextBlock = () => {
-    const coinbaseTx = getCoinbaseTransaction(getPublicFromWallet(), getLatestBlock().index + 1);
+    const coinbaseTx = getCoinbaseTransaction(getPublicFromWallet(), getLastBlock().index + 1);
     const blockData = [coinbaseTx].concat(getTransactionPool());
     return generateRawNextBlock(blockData);
 };
@@ -124,7 +124,7 @@ const generatenextBlockWithTransaction = (receiverAddress, amount) => {
     if (typeof amount !== 'number') {
         throw Error('유효하지 않은 금액');
     }
-    const coinbaseTx = getCoinbaseTransaction(getPublicFromWallet(), getLatestBlock().index + 1);
+    const coinbaseTx = getCoinbaseTransaction(getPublicFromWallet(), getLastBlock().index + 1);
     const tx = createTransaction(receiverAddress, amount, getPrivateFromWallet(), getUnspentTxOuts(), getTransactionPool());
     const blockData = [coinbaseTx, tx];
     return generateRawNextBlock(blockData);
@@ -272,7 +272,7 @@ const isValidChain = (blockchainToValidate) => {
     return aUnspentTxOuts;
 };
 const addBlockToChain = (newBlock) => {
-    if (isValidNewBlock(newBlock, getLatestBlock())) {
+    if (isValidNewBlock(newBlock, getLastBlock())) {
         const retVal = processTransactions(newBlock.data, getUnspentTxOuts(), newBlock.index);
         if (retVal === null) {
             console.log('블록은 트랜잭션 측면에서 유효하지 않습니다.');
@@ -362,4 +362,4 @@ function dbBlockCheck(DBBC) {
       Blocks = bc;
     }
   }
-module.exports= { Block, getBlockchain, getUnspentTxOuts, getLatestBlock, sendTransaction, generateRawNextBlock, generateNextBlock, generatenextBlockWithTransaction, handleReceivedTransaction, getMyUnspentTransactionOutputs, getAccountBalance, isValidBlockStructure, replaceChain, addBlockToChain,calculateHash,dbBlockCheck};
+module.exports= { Block, getBlockchain, getUnspentTxOuts, getLastBlock, sendTransaction, generateRawNextBlock, generateNextBlock, generatenextBlockWithTransaction, handleReceivedTransaction, getMyUnspentTransactionOutputs, getAccountBalance, isValidBlockStructure, replaceChain, addBlockToChain,calculateHash,dbBlockCheck};
