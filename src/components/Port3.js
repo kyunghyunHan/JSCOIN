@@ -233,11 +233,11 @@ function Port3() {
         />
       </Col>
     </div>
-    <Button style={{ marginTop: 5 }} type="dashed" onClick={sendTransaction}>
-      내 피같은 코인 숑숑 전송
+    <Button color="error" style={{ marginTop: 5 }} variant="contained" type="dash" onClick={sendTransaction}>
+    코인 보내기
     </Button>
     <Button style={{ marginTop: 5 }} type="dashed" onClick={mineTransaction}>
-      내 트랜잭션만 넣을어서 채굴할거임
+     트랜잭션 채굴
     </Button>
     <hr className="boundary_line"></hr>
     수영장에서 뛰노는 아이들(tx)이 {transactionPool.length}개 있어요
@@ -248,24 +248,7 @@ function Port3() {
             return <div className="pool_box-effect">⁽⁽◝(˙꒳˙)◜⁾⁾</div>;
           })
         : null}
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
-      <div className="pool_box-effect">~</div>
+      
       <div className="pool_box-effect">~</div>
     </div>
     <p>
@@ -290,9 +273,6 @@ function Port3() {
       value={MoneyToAddress}
     />
     <ButtonGroup disableElevation color="error" variant="contained" size="medium">
-      <Button color="error" style={{ marginTop: 5 }} variant="contained" type="dash" onClick={sendTransaction}>
-        코인 보내기
-      </Button>
       <Button style={{ marginTop: 5 }} color="warning" variant="outlined" type="dash" onClick={console.log(transactionPool.length)}>
         트랜젝션 내역
       </Button>
