@@ -1,70 +1,115 @@
-const _ =require('lodash') ;
-const { validateTransaction } =require('./transaction');
+const _ = require("lodash");
+const TX = require("./transaction");
 
-/**이 챕터에서 우리는 트랜잭션 릴레이를 구현할 거에요. 트랜잭션 릴레이란 아직 블럭체인에 포함되지 않은 트랜잭션들을 포함시키는 작업을 의미하죠. 비트코인에서는 아직 블럭체인에 포함되지 않은 트랜젝션을 unconfirmed transaction이라고 불러요. 누군가 블럭체인에 트랜잭션을 포함시키고자 할 때(코인을 누군가에게 보낸다던가), 그는 트랜젝션을 네트워크에 발송broadcast하고, 다른 노드들이 블럭체인에 그 트랜잭션을 포함시키길 기대하죠. 이 기능은 암호화폐에서 매우 중요해요. 왜냐하면 당신이 어떤 트랜잭션을 블럭체인에 포함시키기 위해 반드시 어떤 블럭을 직접 채굴해야만 하는 건 아니거든요. 결국 노드들은 두가지 다른 타입의 데이터를 공유하게 되죠.
-
-블럭체인의 현 상태(블럭체인에 이미 포함되어 있는 블럭과 트랜젝션들)
-unconfirmed transactions(아직 블럭체인에 포함되지 않은 트랜젝션들) */
-/**우리는 트랜젝션 풀(transaction pool)에 아직 블럭체인에 포함되지 않은 트랜젝션들을 저장할 거에요. 비트코인에는 mempool이라는게 있죠. 트랜젝션 풀은 아직 블럭체인에 포함되지 않은 모든 트랜젝션들을 저장할 하나의 저장소역할을 할 거에요. 이를 위해 배열을 쓰도록 하죠. */
+// 트랜잭션 풀. 초기엔 빈배열. 채굴이 발생하기 전에 생기는 트랜잭션들이 담길것임
 let transactionPool = [];
-const getTransactionPool = () => {
-    return _.cloneDeep(transactionPool);
-};
-const addToTransactionPool = (tx, unspentTxOuts) => {
-    if (!validateTransaction(tx, unspentTxOuts)) {
-        throw Error('풀에 잘못된 tx를 추가하려고 합니다.');
-    }
-    if (!isValidTxForPool(tx, transactionPool)) {
-        throw Error('풀에 잘못된 tx를 추가하려고 합니다.');
-    }
-    console.log('txPool에 추가: %s', JSON.stringify(tx));
-    transactionPool.push(tx);
-};
-const hasTxIn = (txIn, unspentTxOuts) => {
-    const foundTxIn = unspentTxOuts.find((uTxO) => {
-        return uTxO.txOutId === txIn.txOutId && uTxO.txOutIndex === txIn.txOutIndex;
-    });
-    return foundTxIn !== undefined;
-};
-/**트랜잭션과 함께 새 블럭이 블록체인에 추가되었으므로, 기존이 트랜젝션 풀은 새로고침될 필요가 있죠. 어떤 새로운 블럭이 풀 안의 어떤 트랜잭션을 무효하게 만들 트랜젝션을 포함할 수도 있어요. 예를 들면,
 
-풀에 이미 존재하던 트랜젝션이 다시 추가되었다(자신에 의해서건 다른 노드에 의해서건)
-어떤 트랜젝션에서는 소진되지 않은 트랜젝션 아웃풋이 다른 트랜젝션에서는 소진되어 있는 경우 트랜젝션은 다음 코드에 의해 업데이트될 거에요. */
+// 트랜잭션 풀 깊은 복사 해오기
+const getTransactionPool = () => {
+  return _.cloneDeep(transactionPool);
+};
+
+// 트랜잭션 검증해서 트랜잭션풀에 쑤셔넣기
+// (누군가에게 broadcast로 트랜잭션풀 받았을 때,)
+// (누군가에게 코인 보내려고 트랜잭션 만들었을 때 사용됨)
+const addToTransactionPool = (tx, unspentTxOuts) => {
+  // 트랜잭션 구조, 트랜잭션id, 트랜잭션 생성 주체의 서명,
+  // 트랜잭션의 인풋코인양과 아웃풋코인양 일치여부 확인하기
+  if (!TX.validateTransaction(tx, unspentTxOuts)) {
+    throw Error(
+      "트랜잭션 풀에 잘못된 트랜잭션이 들어왔어요(validateTransaction)"
+    );
+  }
+  // 추가될 트랜잭션이 풀에 이미 있는지 검사
+  if (!isValidTxForPool(tx, transactionPool)) {
+    throw Error(
+      "트랜잭션 풀에 이미 있는 트랜잭션이 들어왔어요(isValidTxForPool)"
+    );
+  }
+  transactionPool.push(tx);
+  console.log("트랜잭션 풀에 새로운 트랜잭션을 추가했습니다");
+};
+
+// 새로 갱신될 공용장부에 기존 트랜잭션풀에 있는 인풋과 같은게 있는지 검사
+const hasTxIn = (txIn, unspentTxOuts) => {
+  // 공용장부의   트잭아웃풋id  === 해당 트잭인풋의 트잭아웃풋id 이면서
+  // 공용장부의 트잭아웃풋인덱스 === 해당 트잭인풋의 트잭아웃풋인덱스
+  // 둘다 해당 되는놈을 찾아 반환해서 변수foundTxIn에 담기
+  const foundTxIn = unspentTxOuts.find((uTxO) => {
+    return uTxO.txOutId === txIn.txOutId && uTxO.txOutIndex === txIn.txOutIndex;
+  });
+
+  // 해당되는게 없으면 해당인풋(TxIn)이 들어있는 tx를 새 pool에서 제외할것임
+  return foundTxIn !== undefined;
+};
+
+// 트랜잭션 풀 업데이트하기 (블록 추가될 때, 블록체인 교체할 때 사용됨)
 const updateTransactionPool = (unspentTxOuts) => {
-    const invalidTxs = [];
-    for (const tx of transactionPool) {
-        for (const txIn of tx.txIns) {
-            if (!hasTxIn(txIn, unspentTxOuts)) {
-                invalidTxs.push(tx);
-                break;
-            }
-        }
-    }
-    if (invalidTxs.length > 0) {
-        console.log('txPool에서 다음 트랜잭션 제거: %s', JSON.stringify(invalidTxs));
-        transactionPool = _.without(transactionPool, ...invalidTxs);
-    }
-};
-const getTxPoolIns = (aTransactionPool) => {
-    return _(aTransactionPool)
-        .map((tx) => tx.txIns)
-        .flatten()
-        .value();
-};
-/**peer들이 어떤 트랜잭션을 보내건 간에, 우리는 그 트랜젝션을 풀에 더하기 전에 유효성 검사를 해야만 하겠죠. 이미 다룬 모든 트랜젝션 검사 룰이 적용되요. 트랜젝션의 포맷, 인풋과 아웃풋, 서명 등등. In addition to the existing rules, we add a new rule: a transaction cannot be added to the pool if any of the transaction inputs are already found in the existing transaction pool. This new rule is embodied in the following code: 그리고 새로운 룰 하나가 더 필요해요. ‘만약 추가될 트랜젝션의 어느 input이라도 기존 트랜젝션풀에 있는 것과 일치한다면 해당 트랜젝션은 추가될 수 없다’ 다음 코드가 이를 위한 거에요. */
-const isValidTxForPool = (tx, aTtransactionPool) => {
-    const txPoolIns = getTxPoolIns(aTtransactionPool);
-    const containsTxIn = (txIns, txIn) => {
-        return _.find(txPoolIns, ((txPoolIn) => {
-            return txIn.txOutIndex === txPoolIn.txOutIndex && txIn.txOutId === txPoolIn.txOutId;
-        }));
-    };
+  const invalidTxs = []; // 제외할 트랜잭션목록
+  // 기존 트랜잭션풀의 '트랜잭션' 개수만큼 반복
+  for (const tx of transactionPool) {
+    // '그 트랜잭션'의 "인풋" 개수만큼 반복
     for (const txIn of tx.txIns) {
-        if (containsTxIn(txPoolIns, txIn)) {
-            console.log('txPool에서 이미 txIn을 찾았습니다.');
-            return false;
-        }
+      // "그 인풋"이 새 공용장부에 있는 내용이면 통과, 없으면 '그 트랜잭션'을 제외목록에 추가
+      if (!hasTxIn(txIn, unspentTxOuts)) {
+        invalidTxs.push(tx);
+        break;
+      }
     }
-    return true;
+  } // 제외할 트랜잭션목록이 하나라도 있으면
+  if (invalidTxs.length > 0) {
+    console.log("트랜잭션 풀에서 제외할 트랜잭션들을 제외합니다");
+    // 트랜잭션풀에서 제외할 트랜잭션들은 제외하고 트랜잭션풀에 새로 담아주기
+    // _.without(a,b,c...) a배열에서 b,c..등을 제외한 새로운 배열을 반환
+    transactionPool = _.without(transactionPool, ...invalidTxs);
+  } // 기존 pool에 있는 트랜잭션들은 기존 공용장부로부터 만들어졌으므로
+  // 새 pool은 새 공용장부로부터 만들어진 tx들이 들어있어야 한다.
+  // 그럼 기존 pool에 있는 인풋정보와 새 pool에 들어갈
+  // 새 공용장부로부터 만들어질 tx의 정보는 달라야 정상이므로
+  // hasTxIn함수 내에서 기존 pool에 있는 tx의 txOutId, txOutIndex와
+  // 새 공용장부로 만들어질 tx의 txOutId,txOutIndex는 .find()로 인해 undefined가 나올것이고
+  // 기존 pool에 있는 해당 tx는 제외 목록에 들어가서 _.without()을 통해 제외되고
+  // 새 pool이 된다.
 };
-module.exports= { addToTransactionPool, getTransactionPool, updateTransactionPool };
+
+// 트랜잭션풀에서 트랜잭션 인풋들만 가져오기
+const getTxPoolIns = (aTransactionPool) => {
+  return _(aTransactionPool)
+    .map((tx) => tx.txIns)
+    .flatten() // 배열 안의 배열을 1깊이? 1수준? 만큼 풀어주는 녀석
+    .value(); // .flatten()의 결과는 객체임 .value()는 그 객체의 값을 추출하는녀석
+  // .flatten().value() -> [ [[a],[b]],[c] ] -> [[a,b],c]
+};
+
+// 전달받은 트랜잭션이 트랜잭션풀에 있는 트랜잭션들과 중복되는지 검사하기
+const isValidTxForPool = (tx, aTtransactionPool) => {
+  // 트랜잭션풀에서 트랜잭션 인풋들만 가져와서 변수txPoolIns에 저장
+  const txPoolIns = getTxPoolIns(aTtransactionPool);
+  // 트랜잭션풀에 있는 인풋들에서 전달받은 트랜잭션의 인풋들과 같은게 있으면 그거 반환
+  const containsTxIn = (txIns, txIn) => {
+    return _.find(txPoolIns, (txPoolIn) => {
+      return (
+        // 전달받은 트잭인풋의 트잭아웃풋인덱스 === 트잭풀에 있는 트잭아웃풋인덱스
+        // 전달받은 트잭인풋의 트잭아웃풋ID === 트잭풀에 있는 트잭아웃풋ID
+        // 둘다 같은게 있는지 찾아보기
+        txIn.txOutIndex === txPoolIn.txOutIndex &&
+        txIn.txOutId === txPoolIn.txOutId
+      );
+    });
+  };
+  // 전달받은 트랜잭션의 인풋들 개수만큼 반복
+  for (const txIn of tx.txIns) {
+    // 전달받은 트랜잭션의 인풋이 트랜잭션풀에 있는 인풋과 같으면 중복이므로 false
+    if (containsTxIn(txPoolIns, txIn)) {
+      return false;
+    }
+  }
+  // 중복된게 없으면 통과
+  return true;
+};
+
+module.exports = {
+  addToTransactionPool,
+  getTransactionPool,
+  updateTransactionPool,
+};

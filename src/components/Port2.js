@@ -88,7 +88,23 @@ function Port2() {
         });
     }
   };
-
+  const mineTransaction = async () => {
+    if (Money <= 0) {
+      alert("송금액이 잘못되었어요");
+    } else if (MoneyToAddress.length !== 130) {
+      alert("주소가 잘못되었어요 똑바로 좀 하세요");
+    } else {
+      await axios
+        .post(`http://localhost:3002/mineTransaction`, {
+          address: MoneyToAddress,
+          amount: Money,
+        })
+        .then((res) => {
+          console.log(res.data);
+          alert("치사하게 채굴하였어요");
+        });
+    }
+  };
   // 트랜잭션풀 불러오기
   const getTransactionPool = async () => {
     await axios
@@ -115,22 +131,23 @@ function Port2() {
   };
 
   const getpeers = async () => {
-    axios.get(`http://localhost:3002/peers`).then((req) => setPeers(req.data));
+    axios.get(`http://localhost:3002/peers`).then((res) => setPeers(res.data));
   };
   if (peers.length === 0) {
     return setPeers(`연결된 피어가없어요`);
   }
 
-  const addPeers = async () => {
+  // 연결할 소켓 추가하기
+  const addPeer = async () => {
     const P = peer;
     if (P.length === 0) {
       return alert(`peer내용을 넣어주세용`);
     }
     await axios
-      .post(`http://localhost:3002/addPeers`, {
-        peers: [`ws://localhost:${P}`],
+      .post(`http://localhost:3002/addPeer`, {
+        peer: [`ws://localhost:${P}`],
       })
-      .then((req) => alert(req.data));
+      .then((res) => alert(res.data));
   };
 
   const toggleComment = (blockchain) => {
@@ -178,20 +195,78 @@ function Port2() {
       <br />
       <br />
       <Input
-        placeholder="연결할 노드 번호를 적으세요"
-        onChange={(e) => {
-          setPeer(e.target.value);
-        }}
-        value={peer}
-      />
+          addonBefore="ws://localhost:"
+          placeholder=" ex)6001 "
+          onChange={(e) => {
+            setPeer(e.target.value);
+          }}
+          value={peer}
+        />
       <ButtonGroup disableElevation color="error" variant="contained" size="medium">
-        <Button style={{ marginTop: 5 }} type="dash" onClick={addPeers}>
-          피어 연결
-        </Button>
-        <Button style={{ marginTop: 5 }} color="warning" variant="outlined" type="dash" onClick={getpeers}>
-          피어 연결목록 확인
-        </Button>
+      <Button style={{ marginTop: 5 }} type="dashed" onClick={addPeer}>
+        피어연결
+      </Button>
+      <Button style={{ marginLeft: 40 }} type="dashed" onClick={getpeers}>
+        피어 연결목록확인
+      </Button>
       </ButtonGroup>
+      <div className="tx_entry">
+        <Col span={3}>
+          얼마면 돼?
+          <Input
+            type="number"
+            onChange={(e) => {
+              setMoney(e.target.value);
+            }}
+            value={Money}
+          />
+        </Col>
+        <Col span={20}>
+          어디다가 보내줄까?
+          <Input
+            type="text"
+            onChange={(e) => {
+              setMoneyToAddress(e.target.value);
+            }}
+            value={MoneyToAddress}
+          />
+        </Col>
+      </div>
+      <Button style={{ marginTop: 5 }} type="dashed" onClick={sendTransaction}>
+        내 피같은 코인 숑숑 전송
+      </Button>
+      <Button style={{ marginTop: 5 }} type="dashed" onClick={mineTransaction}>
+        내 트랜잭션만 넣을어서 채굴할거임
+      </Button>
+      <hr className="boundary_line"></hr>
+      수영장에서 뛰노는 아이들(tx)이 {transactionPool.length}개 있어요
+      <div className="pool_box">
+        (대충 수영장)
+        {transactionPool
+          ? transactionPool.map((txPool) => {
+              return <div className="pool_box-effect">⁽⁽◝(˙꒳˙)◜⁾⁾</div>;
+            })
+          : null}
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+        <div className="pool_box-effect">~</div>
+      </div>
       <p>
         {" "}
         <b style={{ marginLeft: 10 }}></b> {peers}

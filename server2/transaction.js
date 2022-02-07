@@ -1,344 +1,450 @@
-const  CryptoJS =require('crypto-js') ;
-const  ecdsa =require('elliptic') ;
-const  _ =require('lodash') ;
-const ec = new ecdsa.ec('secp256k1');
-//코인베이스 트랜잭션(coinbase transaction)은 오직 아웃풋만 포함해요. 인풋은 없죠. 코인베이스 트랜잭션이 새로운 코인을 돌게 만드는 펌프?같은 역할을 할거에요. 코인베이스 아풋풋의 양을 50코인으로 정하죠.
+const CryptoJS = require("crypto-js");
+const ecdsa = require("elliptic");
+const _ = require("lodash");
+
+const EC = new ecdsa.ec("secp256k1");
+
 const COINBASE_AMOUNT = 50;
+
+// uTxOs(공용장부)에 들어갈 미사용 트랜잭션 아웃풋 클래스 정의
 class UnspentTxOut {
-    constructor(txOutId, txOutIndex, address, amount) {
-        this.txOutId = txOutId;
-        this.txOutIndex = txOutIndex;
-        this.address = address;
-        this.amount = amount;
-    }
+  constructor(txOutId, txOutIndex, address, amount) {
+    this.txOutId = txOutId;
+    this.txOutIndex = txOutIndex;
+    this.address = address;
+    this.amount = amount;
+  }
 }
-//트랜잭션 인풋(txIn)은 코인이 어디로부터 왔는지에 대한 정보를 제공해요.
-// 각각의 txIn은 이전의 output을 참조하고 서명을 통해 unlocked되요.
-// 서명의 역할은 오직 public key과 한 쌍인 private key를 가진 사용자만이 트랜잭션을 만들수 있음을 보증하죠.
-// 인풋은 보낸(보내진)코인을 실제로 소유했었던 발송자에대한 증거에요.
 
+// 트랜잭션 인풋 클래스 정의
 class TxIn {
+  constructor(txOutId, txOutIndex, signature) {
+    this.txOutId = txOutId;
+    this.txOutIndex = txOutIndex;
+    this.signature = signature;
+  }
 }
-//아웃풋은 코인을 어디로 보낼지에 대한 정보에요. 
-//트랜잭션 아웃풋(txOut)은 주소와 코인의 양으로 구성되요. 주소는 ECDSA 퍼블릭키 값이에요. 
-//이는 유저가 특정 코인에 접근하기 위해서는 해당 퍼블릭키에 대응하는 private key를 가지고 있어야 한다는 거죠.
+
+// 트랜잭션 아웃풋('누군가'에게 '얼마'를 보낸다) 클래스 정의
 class TxOut {
-    constructor(address, amount) {
-        this.address = address;
-        this.amount = amount;
-    }
+  constructor(address, amount) {
+    this.address = address;
+    this.amount = amount;
+  }
 }
-/**
- * 트랜잭션 인풋txIn은 오직 private key로부터 생성된 signature값만을 가진다는 걸 주목해주세요. 절대 private key 그 자체를 가지지 않아요. 블록체인은 퍼블릭키public-key와 서명signature만을 가져요.
 
-결과적으로 txIn은 코인을 풀고unlock txOut은 코인을 잠그는relock 역할을 해요.
- */
+// 트랜잭션 클래스 정의
 class Transaction {
+  constructor(id, txIns, txOuts) {
+    this.id = id;
+    this.txIns = txIns;
+    this.txOuts = txOuts;
+  }
 }
-//트랜잭션 아이디는 트랜잭션의 컨텐트로부터 계산된 해시값이에요. txIds의 signature는 해시에 포함되지 않지만, 그건 나중에 트랜잭션에 추가될 거에요.
+
+// 트랜잭션에 들어갈 id값 구하는 녀석
 const getTransactionId = (transaction) => {
-    const txInContent = transaction.txIns
-        .map((txIn) => txIn.txOutId + txIn.txOutIndex)
-        .reduce((a, b) => a + b, '');
-    const txOutContent = transaction.txOuts
-        .map((txOut) => txOut.address + txOut.amount)
-        .reduce((a, b) => a + b, '');
-    return CryptoJS.SHA256(txInContent + txOutContent).toString();
+  // id값을 구할 해당 트랜잭션의 인풋들을 다 더하고
+  const txInContent = transaction.txIns
+    .map((txIn) => txIn.txOutId + txIn.txOutIndex)
+    .reduce((a, b) => a + b, "");
+  // 아웃풋들도 다 더해서
+  const txOutContent = transaction.txOuts
+    .map((txOut) => txOut.address + txOut.amount)
+    .reduce((a, b) => a + b, "");
+  // 그 둘을 더한것을 암호화한 문자열로 반환해서 id로 쓸거임
+  return CryptoJS.SHA256(txInContent + txOutContent).toString();
 };
+
+// 트랜잭션 확인 (초기, 블록추가될 때, 체인교체될 때, 트랜잭션 추가될 때 사용됨)
+// 트랜잭션 구조, 트랜잭션id, 트랜잭션 생성 주체의 서명,
+// 트랜잭션의 인풋코인양과 아웃풋코인양의 일치여부 확인
 const validateTransaction = (transaction, aUnspentTxOuts) => {
-    if (!isValidTransactionStructure(transaction)) {
-        return false;
-    }
-    if (getTransactionId(transaction) !== transaction.id) {
-        console.log('잘못된 TX ID: ' + transaction.id);
-        return false;
-    }
-    const hasValidTxIns = transaction.txIns
-        .map((txIn) => validateTxIn(txIn, transaction, aUnspentTxOuts))
-        .reduce((a, b) => a && b, true);
-    if (!hasValidTxIns) {
-        console.log('txIn 중 일부는 tx에서 유효하지 않습니다.: ' + transaction.id);
-        return false;
-    }
+  // 트랜잭션 구조 검증하기
+  if (!isValidTransactionStructure(transaction)) {
+    return false;
+  }
+  // 해당 트랜잭션에 id가 실제 id 맞는지 계산해보기
+  if (getTransactionId(transaction) !== transaction.id) {
+    console.log("트랜잭션에 써있는 id가 짭이네요");
+    return false;
+  }
 
-    //아웃풋의 코인 갯수와 인풋의 코인 갯수도 같아야만 해요. 아웃풋이 50개라면 인풋도 50개.
-    const totalTxInValues = transaction.txIns
-        .map((txIn) => getTxInAmount(txIn, aUnspentTxOuts))
-        .reduce((a, b) => (a + b), 0);
-    const totalTxOutValues = transaction.txOuts
-        .map((txOut) => txOut.amount)
-        .reduce((a, b) => (a + b), 0);
-    if (totalTxOutValues !== totalTxInValues) {
-        console.log('totalTxOutValues !== totalTxInValues in tx: ' + transaction.id);
-        return false;
-    }
-    return true;
+  // 해당 트랜잭션의 트잭인풋들을 공용장부랑 비교확인해서
+  // 이상있는놈이 하나라도 있으면 false 반환하는 녀석
+  const hasValidTxIns = transaction.txIns
+    .map((txIn) => validateTxIn(txIn, transaction, aUnspentTxOuts))
+    .reduce((a, b) => a && b, true);
+
+  // uTxOs 트랜잭션 인풋들 검사해서 하나라도 이상이 있으면
+  if (!hasValidTxIns) {
+    console.log("(검사실패) 트랜잭션의 인풋중에 이상한 인풋이 있어요");
+    return false;
+  }
+
+  // 총 보유 코인이 얼만지 계산하는 녀석
+  // 공용장부에서 해당 트랜잭션의 인풋과 일치하는 것들(amount코인)을 찾아서 다 더해줌
+  const totalTxInValues = transaction.txIns
+    .map((txIn) => getTxInAmount(txIn, aUnspentTxOuts))
+    .reduce((a, b) => a + b, 0);
+
+  // 총 보내는 코인이 얼만지 계산하는 녀석(실제 보내는 코인 + 거슬러 받을 코인)
+  const totalTxOutValues = transaction.txOuts
+    .map((txOut) => txOut.amount)
+    .reduce((a, b) => a + b, 0);
+
+  // 해당 트랜잭션 내의 (총 보유 코인)과 (실제 보낼 코인+거슬러 받을 코인)이 다르면
+  if (totalTxOutValues !== totalTxInValues) {
+    console.log("(검사실패) 가진 코인과 주고받을 코인의 양이 달라요");
+    return false;
+  }
+
+  return true;
 };
-const validateBlockTransactions = (aTransactions, aUnspentTxOuts, blockIndex) => {
-    const coinbaseTx = aTransactions[0];
-    if (!validateCoinbaseTx(coinbaseTx, blockIndex)) {
-        console.log('잘못된 코인베이스 거래: ' + JSON.stringify(coinbaseTx));
-        return false;
-    }
-    // 중복 txIn을 확인하십시오. 각 txIn은 한 번만 포함될 수 있습니다.
-    const txIns = _(aTransactions)
-        .map((tx) => tx.txIns)
-        .flatten()
-        .value();
-    if (hasDuplicates(txIns)) {
-        return false;
-    }
-    // 코인베이스 거래를 제외한 모든 거래
-    const normalTransactions = aTransactions.slice(1);
-    return normalTransactions.map((tx) => validateTransaction(tx, aUnspentTxOuts))
-        .reduce((a, b) => (a && b), true);
+
+// 블록의 트랜잭션들 정상인지 확인해보기 (초기, 블록추가될 때, 체인교체될 때 사용됨)
+const validateBlockTransactions = (
+  aTransactions,
+  aUnspentTxOuts,
+  blockIndex
+) => {
+  // 코인베이스 트랜잭션은 블록에 담긴 트랜잭션들중 [0]번째 요소니까
+  // 변수coinbaseTx에 담아서 코인베이스 검증
+  const coinbaseTx = aTransactions[0];
+  // 코인베이스 트랜잭션 검사
+  if (!validateCoinbaseTx(coinbaseTx, blockIndex)) {
+    console.log(
+      "(검증실패) 블록에 들어있는 코인베이스 트랜잭션이 잘못되었습니다"
+    );
+    return false;
+  }
+
+  // 트랜잭션들의 인풋들만 빼내서 배열로 담기
+  /* 예) [[tx0],[tx1],[tx2]...]를 map으로 [[tx0의txIns],[tx1의txIns]...]로,
+         다시 그걸 .flatten().value()로 
+         [tx0의txIn0,tx0의txIn1,tx0의txIn3,tx1의txIn0,tx1의txIn1,tx2의tx0...] */
+  const txIns = _(aTransactions)
+    .map((tx) => tx.txIns)
+    .flatten() // 배열 안의 배열을 1깊이? 1수준? 만큼 풀어주는 녀석
+    .value(); // .flatten()의 결과는 객체임 .value()는 그 객체의 값을 추출하는녀석
+  // .flatten().value() -> [ [[a],[b]],[c] ] -> [[a,b],c]
+
+  // 트랜잭션들에서 빼온 인풋들중에 중복되는게 있으면 안됨
+  if (hasDuplicates(txIns)) {
+    return false;
+  }
+
+  // 일반 트랜잭션들(코인베이스 트랜잭션을 제외한 전체 트랜잭션)
+  const normalTransactions = aTransactions.slice(1);
+  // 일반 트랜잭션들을 검사해서 모두 정상이면 true 반환
+  return normalTransactions
+    .map((tx) => validateTransaction(tx, aUnspentTxOuts))
+    .reduce((a, b) => a && b, true);
 };
+
+// 중복찾기
 const hasDuplicates = (txIns) => {
-    const groups = _.countBy(txIns, (txIn) => txIn.txOutId + txIn.txOutIndex);
-    return _(groups)
-        .map((value, key) => {
+  // 트랜잭션들에서 빼온 인풋들의 txOutId+txOutIndex 값이 같은것끼리 묶어서 객체로 저장
+  const groups = _.countBy(txIns, (txIn) => txIn.txOutId + txIn.txOutIndex);
+  // 그것들을(객체) 맵으로 하나씩 검토
+  return (
+    _(groups)
+      // value는 트랜잭션들에서 빼온 인풋들의 txOutId+txOutIndex 값 중 하나
+      // key는 그냥 위 값들의 인덱스
+      .map((value, key) => {
+        // 검토하는 그 객체가 1보다 크면(중복이 있으면)
         if (value > 1) {
-            console.log('중복 txIn: ' + key);
-            return true;
+          console.log("중복된 트랜잭션 인풋이 있어요");
+          return true;
+        } else {
+          return false;
         }
-        else {
-            return false;
-        }
-    })
-        .includes(true);
+      }) // 위에 map을 통해 나온 true또는 false로 이루어진 배열에 true가 하나라도 있으면
+      .includes(true) // true, 없으면 false 반환
+  );
 };
-/**코인베이스 트랜잭션은 당연히 노드의 첫 트랜잭션이고 블럭 채굴자 정보를 포함하죠. 블락을 발견한 댓가로 채굴자는 첫 코인베이스 트랜잭션의 아웃풋으로 코인 50개를 받을 거에요.
 
-코인베이스 트랜잭션의 인풋에는 block의 height값을 넣을게요. 이 값이 코인베이스 트랜잭션의 고유한 ID값 역할을 할 거에요. 이 고유값이 없다면 코인 베이스 트랜잭션은 항상 같은 주소에 50코인을 발행하게 되죠.
-
-코인베이스 트랜잭션의 유효성검증은 다른 트랜잭션이랑은 조금 다를 거에요. */
+// 코인베이스 트랜잭션 검사 (processTransactions 작동할 때 사용됨)
+//                        (초기, 블록추가될 때, 체인교체될 때)
 const validateCoinbaseTx = (transaction, blockIndex) => {
-    if (transaction == null) {
-        console.log('the first transaction in the block must be coinbase transaction');
-        return false;
-    }
-    //ID도 확인해야 하고.
-    if (getTransactionId(transaction) !== transaction.id) {
-        console.log('invalid coinbase tx id: ' + transaction.id);
-        return false;
-    }
-    if (transaction.txIns.length !== 1) {
-        console.log('one txIn must be specified in the coinbase transaction');
-        return;
-    }
-    if (transaction.txIns[0].txOutIndex !== blockIndex) {
-        console.log('the txIn signature in coinbase tx must be the block height');
-        return false;
-    }
-    if (transaction.txOuts.length !== 1) {
-        console.log('invalid number of txOuts in coinbase transaction');
-        return false;
-    }
-    if (transaction.txOuts[0].amount !== COINBASE_AMOUNT) {
-        console.log('invalid coinbase amount in coinbase transaction');
-        return false;
-    }
-    return true;
+  // 코인베이스 트랜잭션이 null인 경우
+  if (transaction == null) {
+    console.log("(검증실패) 코인베이스 트랜잭션 자리가 비었네요(null)");
+    return false;
+  } // 블록에 기록된 코베트잭id가 코베트잭가지고 계산해본 코베트잭id와 다른경우
+  if (getTransactionId(transaction) !== transaction.id) {
+    console.log(
+      "(검증실패) 코인베이스 트랜잭션의 id가 계산해보니 일치하지 않아요"
+    );
+    return false;
+  } // 코베트잭의 인풋이 1개가 아닌경우
+  if (transaction.txIns.length !== 1) {
+    console.log("(검증실패) 코인베이스 트랜잭션의 인풋이 1개가 아니에요");
+    return;
+  } // 코베트잭의 인풋의 txOutIndex와 코베트잭이 들어있는 블록의 인덱스가 같지 않은 경우
+  if (transaction.txIns[0].txOutIndex !== blockIndex) {
+    console.log(
+      "(검증실패) 코인베이스 tx의 txOutIndex와 블록의 높이가 다르네요"
+    );
+    return false;
+  } // 코베트잭의 아웃풋이 1개가 아닌경우
+  // (코베트잭에는 채굴자에게 보상주는 아웃풋 하나만 있어야함)
+  if (transaction.txOuts.length !== 1) {
+    console.log("(검증실패) 코인베이스 tx의 txOuts가 1개가 아니네요");
+    return false;
+  } // 코베트잭의 채굴자에게 보낼 보상금액이 설계된 금액(50)과 다른경우
+  if (transaction.txOuts[0].amount !== COINBASE_AMOUNT) {
+    console.log("(검증실패) 채굴보상금액이 설정된 금액과 달라요");
+    return false;
+  }
+  return true;
 };
-//txIns의 서명도 사용되지 않은 아웃풋을 잘 참조하고 있는지 확인해야 해요.
+
+// 트랜잭션 인풋 확인 (초기, 블록추가될 때, 체인교체될 때, 트랜잭션 추가될 때 사용됨)
 const validateTxIn = (txIn, transaction, aUnspentTxOuts) => {
-    const referencedUTxOut = aUnspentTxOuts.find((uTxO) => uTxO.txOutId === txIn.txOutId && uTxO.txOutIndex === txIn.txOutIndex);
-    if (referencedUTxOut == null) {
-        console.log('referenced txOut not found: ' + JSON.stringify(txIn));
-        return false;
-    }
-    const address = referencedUTxOut.address;
-    const key = ec.keyFromPublic(address, 'hex');
-    const validSignature = key.verify(transaction.id, txIn.signature);
-    if (!validSignature) {
-        console.log('invalid txIn signature: %s txId: %s address: %s', txIn.signature, transaction.id, referencedUTxOut.address);
-        return false;
-    }
-    return true;
+  // 공용장부에서 해당 트잭인풋과 같은게 있으면 referencedUTxOut(참조된 uTxO)에 저장
+  const referencedUTxOut = aUnspentTxOuts.find(
+    (uTxO) =>
+      // 공용장부의 id === 해당 트잭인풋의 트잭아웃풋 id 이고
+      uTxO.txOutId === txIn.txOutId &&
+      // 공용장부의 트잭아웃풋 인덱스 === 해당 트잭인풋의 트잭아웃풋 인덱스인것을 찾아라
+      uTxO.txOutIndex === txIn.txOutIndex
+  );
+  // 위와 같은게 하나도 없으면 문제
+  if (referencedUTxOut == null) {
+    console.log("(검사실패) 참조된 uTxO가 하나도 없답니다");
+    return false;
+  }
+  // 참조된uTxO의 지갑주소 변수에 저장
+  const address = referencedUTxOut.address;
+  // 참조된uTxO의 지갑주소를 키쌍으로 변환
+  const key = EC.keyFromPublic(address, "hex");
+  // 서명 진퉁인지 확인
+  // 해당 키쌍이(key) 해당 트랜잭션(id)에 알맞은 서명(signature)값이면 true
+  const validSignature = key.verify(transaction.id, txIn.signature);
+  // 서명이 짭이면
+  if (!validSignature) {
+    console.log("(검사실패) 본인의 서명이 아닌 모양입니다");
+    return false;
+  }
+  return true;
 };
+
+// 공용장부에서 특정 인풋과 일치하는것 뱉어내기
 const getTxInAmount = (txIn, aUnspentTxOuts) => {
-    return findUnspentTxOut(txIn.txOutId, txIn.txOutIndex, aUnspentTxOuts).amount;
+  return findUnspentTxOut(txIn.txOutId, txIn.txOutIndex, aUnspentTxOuts).amount;
 };
+
+// uTxOs(공용장부)에서 특정 트랜잭션과 일치하는 uTxO 찾아서 반환
 const findUnspentTxOut = (transactionId, index, aUnspentTxOuts) => {
-    return aUnspentTxOuts.find((uTxO) => uTxO.txOutId === transactionId && uTxO.txOutIndex === index);
+  return aUnspentTxOuts.find(
+    (uTxO) => uTxO.txOutId === transactionId && uTxO.txOutIndex === index
+  );
 };
+
+// 코인베이스 트랜잭션 만들어주기
 const getCoinbaseTransaction = (address, blockIndex) => {
-    const t = new Transaction();
-    const txIn = new TxIn();
-    txIn.signature = '';
-    txIn.txOutId = '';
-    txIn.txOutIndex = blockIndex;
-    t.txIns = [txIn];
-    t.txOuts = [new TxOut(address, COINBASE_AMOUNT)];
-    t.id = getTransactionId(t);
-    return t;
+  const t = new Transaction();
+  const txIn = new TxIn();
+  // 코인베이스는 시그니쳐(서명)없음
+  txIn.signature = "";
+  // id 도 없음
+  txIn.txOutId = "";
+  txIn.txOutIndex = blockIndex;
+
+  t.txIns = [txIn];
+  t.txOuts = [new TxOut(address, COINBASE_AMOUNT)];
+  // 위 정보들로 코인베이스 트랜잭션의 id 만들어주기
+  t.id = getTransactionId(t);
+  return t;
 };
-/**서명된 이후의 트랜잭션 내용이 수정될 수 없다는 사실은 매우 중요해요. 트랜잭션이 public해졌기 때문에 누구나 그 트랜잭션에 접근할 수 있죠. 
- * 아직 블록체인에 chaining되지 않은 사람까지도.
 
-트랜잭션 인풋에 서명할 때 오직 txId만이 서명될 거에요.
- 만약 트랜잭션의 어느 부분이라도 변경되면 txId값도 변경되고, 이는 해당 트랜잭션과 서명을 무효화하죠.
-
-누군가가 트랜잭션에 변경을 시도하면 무슨 일이 일어나는지를 살펴보죠.
-
-한 노드의 해커가 “10코인을 AAA주소에서 BBB주소로 보내”라는 내용을 가진 트랜잭션을 0x555라는 txId값과 함께 받았어요.
-해커는 수신 주소를 BBB에서 CCC로 변경하고 이를 네트워크상에 포워딩해요. 이제 트랜잭션의 내용은 “10코인을 AAA주소에서 CCC주소로 보내”로 바뀌었어요.
-하지만 수신 주소가 변경되면 기존 txId는 더 이상 유효하지 않아요. 유효한 txId는 0x567.. 같은 게 되겠죠.
-서명signature 역시 기존 txId를 기반으로 만들어졌기 때문에 더 이상 유효하지 않게 되요.
-따라서 변조된 트랜잭션은 다른 노드들에서 받아들여질 수 없죠.
-
-*/
+// 서명하기(signature) (트랜잭션 만들때 사용됨)
 const signTxIn = (transaction, txInIndex, privateKey, aUnspentTxOuts) => {
-    const txIn = transaction.txIns[txInIndex];
-    const dataToSign = transaction.id;
-    const referencedUnspentTxOut = findUnspentTxOut(txIn.txOutId, txIn.txOutIndex, aUnspentTxOuts);
-    if (referencedUnspentTxOut == null) {
-        console.log('could not find referenced txOut');
-        throw Error();
-    }
-    const referencedAddress = referencedUnspentTxOut.address;
-    if (getPublicKey(privateKey) !== referencedAddress) {
-        console.log('trying to sign an input with private' +
-            ' key that does not match the address that is referenced in txIn');
-        throw Error();
-    }
-    const key = ec.keyFromPrivate(privateKey, 'hex');
-    const signature = toHexString(key.sign(dataToSign).toDER());
-    return signature;
+  // txInIndex는 .map()을 통해 트랜잭션 안의 인풋들을 모두 접근하도록 해줄것임
+  // 고로 txIn는 해당 인풋. 처음은 0번 인덱스 인풋, 다음은 1번인덱스 인풋...
+  const txIn = transaction.txIns[txInIndex];
+
+  // 서명할 데이터
+  const dataToSign = transaction.id;
+  // 참조된uTxO = 해당인풋과 일치하는 uTxO
+  const referencedUnspentTxOut = findUnspentTxOut(
+    txIn.txOutId,
+    txIn.txOutIndex,
+    aUnspentTxOuts
+  );
+  // 참조된uTxO가 없으면 서명못함
+  if (referencedUnspentTxOut == null) {
+    console.log("참조된 uTxO가 없어요");
+    throw Error();
+  } // 참조된주소 = 참조된uTxO의 지갑주소
+  const referencedAddress = referencedUnspentTxOut.address;
+  // 내 비밀키로 만든 공개키랑 참조된주소가 다르면 서명못함
+  if (getPublicKey(privateKey) !== referencedAddress) {
+    console.log(
+      "내 개인키로 만든 공개키(주소)와 내가 서명할 인풋의 공개키(주소)가 달라요"
+    );
+    throw Error();
+  } // 위 조건들에 걸리지 않으면 인풋에 서명하기
+  // 내 비밀키로부터 키쌍을 만들고
+  const key = EC.keyFromPrivate(privateKey, "hex");
+  // 서명 만들어서
+  const signature = toHexString(key.sign(dataToSign).toDER());
+  return signature; // 서명 반환
 };
-/**트랜잭션 인풋은 항상 ‘보내지지지 않은 트랜잭션 아웃풋(Unspent transaction outputs, uTxO)’을 참조해야해요. 결국, 우리가 블록체인에서 코인을 갖는다는 것은, 보내지지지 않은 트랜잭션 아웃풋(Unspent transaction outputs, uTxO)의 목록을 가진다는 거죠. 이 아웃풋들의 퍼블릭키는 private key와 대응하구요.
 
-트랜잭션 유효성 검증이란 측면에서 uTxO는 중요해요. uTxO는 현재 최신 상태의 블록체인에서 비롯되어야 하기 때문에 우리는 이 업데이트를 구현할 거에요.
-
-uTxO의 데이터 구조는 아래와 같죠. */
-/**새로운 블록이 더해질 때마다 uTxO(Unspent transaction outputs)을 업데이트해야해요. 새로운 트랜잭션은 기존의 트랜잭션 아웃풋 목록에 영향을 주고 새로운 아웃풋을 발생시키기 때문이죠. 이를 위해 새로 생성된 블록으로부터 new unspent transaction outputs을 순회하는 작업이 이루어질 거에요. 코드를 보죠. */
+// 공용장부 갱신 (초기, 블록추가될 때, 체인교체될 때 사용됨)
 const updateUnspentTxOuts = (aTransactions, aUnspentTxOuts) => {
-    const newUnspentTxOuts = aTransactions
-        .map((t) => {
-        return t.txOuts.map((txOut, index) => new UnspentTxOut(t.id, index, txOut.address, txOut.amount));
-    })
-        .reduce((a, b) => a.concat(b), []);
-        //블록에서 이미 소비된 트랜잭션 아웃풋들에 대해서도 알아야 해요. 새 트랜잭션의 인풋을 검사하면 알 수 있어요.
+  // 새 공용장부 만들기
+  const newUnspentTxOuts = aTransactions
+    .map((t) => {
+      // 트랜잭션들(aTransactions)의 (map)
+      return t.txOuts.map(
+        // 트잭아웃풋들(txOuts)의 (map) 아웃풋, 인덱스를 가지고
+        (txOut, index) =>
+          // 새 uTxO(미사용트랜잭션아웃풋) 만들어서
+          new UnspentTxOut(t.id, index, txOut.address, txOut.amount)
+      );
+    }) // reduce, concat을 통해 새 배열(uTxOs)을 만들어서 변수newUnspentTxOuts에 저장
+    .reduce((a, b) => a.concat(b), []);
 
+  // 사용된 트잭아웃풋들 만들기
+  const consumedTxOuts = aTransactions
+    .map((t) => t.txIns) // 트랜잭션들의 인풋들[]을 배열로 만들고 [ [q], [w], [e] ]
+    .reduce((a, b) => a.concat(b), []) // 배열껍데기 벗기고 [ q, w, e ]
+    // 새 uTxO들로 만들어주기 [ qUTxO, wUTxO, eUTxO ]
+    .map((txIn) => new UnspentTxOut(txIn.txOutId, txIn.txOutIndex, "", 0));
 
-    const consumedTxOuts = aTransactions
-        .map((t) => t.txIns)
-        .reduce((a, b) => a.concat(b), [])
-        .map((txIn) => new UnspentTxOut(txIn.txOutId, txIn.txOutIndex, '', 0));
-        //이미 소비된 아웃풋을 제거하고 이제 새로은 트랜잭션 아웃풋을 만들수 있게 되었어요.
-    const resultingUnspentTxOuts = aUnspentTxOuts
-        .filter(((uTxO) => !findUnspentTxOut(uTxO.txOutId, uTxO.txOutIndex, consumedTxOuts)))
-        .concat(newUnspentTxOuts);
-    return resultingUnspentTxOuts;
+  const resultingUnspentTxOuts = aUnspentTxOuts
+    .filter(
+      // 기존장부에서 사용된 트잭아웃풋들에 해당되지 않는것들만 골라내어
+      (uTxO) => !findUnspentTxOut(uTxO.txOutId, uTxO.txOutIndex, consumedTxOuts)
+    ) // concat으로 새장부와 합쳐서 반환
+    .concat(newUnspentTxOuts);
+  // 예) 블록이 채굴되면 그 안에 담긴 트랜잭션들의 아웃풋들로는 새 장부를 만들고
+  // 인풋들로는 consumedTxOuts(사용된 트잭아웃풋들)를 만들고
+  // 새 장부에 (기존장부 - consumedTxOuts)를 합쳐서 새 장부를 정식등록한다
+  return resultingUnspentTxOuts;
 };
+
+// 공용장부 갱신하기 (공용장부에서 거래내용(aTransactions) 정산해서)
+//                 (갱신한 공용장부 반환 / 초기, 블록추가될 때, 체인교체될 때 사용됨)
 const processTransactions = (aTransactions, aUnspentTxOuts, blockIndex) => {
-    if (!validateBlockTransactions(aTransactions, aUnspentTxOuts, blockIndex)) {
-        console.log('invalid block transactions');
-        return null;
-    }
-    return updateUnspentTxOuts(aTransactions, aUnspentTxOuts);
+  // 블록의 트랜잭션들 검사하기
+  if (!validateBlockTransactions(aTransactions, aUnspentTxOuts, blockIndex)) {
+    return null;
+  }
+  // 특정 블록에 담긴 트랜잭션(들)과 공용장부를 가지고 갱신한 새 공용장부를 반환
+  return updateUnspentTxOuts(aTransactions, aUnspentTxOuts);
 };
+
 const toHexString = (byteArray) => {
-    return Array.from(byteArray, (byte) => {
-        return ('0' + (byte & 0xFF).toString(16)).slice(-2);
-    }).join('');
+  return Array.from(byteArray, (byte) => {
+    return ("0" + (byte & 0xff).toString(16)).slice(-2);
+  }).join("");
 };
+
+// 개인키로 공개키 만들기
 const getPublicKey = (aPrivateKey) => {
-    return ec.keyFromPrivate(aPrivateKey, 'hex').getPublic().encode('hex');
+  return EC.keyFromPrivate(aPrivateKey, "hex").getPublic().encode("hex");
 };
+
+// 트랜잭션의 인풋 구조 검증
 const isValidTxInStructure = (txIn) => {
-    if (txIn == null) {
-        console.log('txIn is null');
-        return false;
-    }
-    else if (typeof txIn.signature !== 'string') {
-        console.log('invalid signature type in txIn');
-        return false;
-    }
-    else if (typeof txIn.txOutId !== 'string') {
-        console.log('invalid txOutId type in txIn');
-        return false;
-    }
-    else if (typeof txIn.txOutIndex !== 'number') {
-        console.log('invalid txOutIndex type in txIn');
-        return false;
-    }
-    else {
-        return true;
-    }
+  if (txIn == null) {
+    console.log("(검증실패) 트랜잭션의 인풋이 null 입니다");
+    return false;
+  } else if (typeof txIn.signature !== "string") {
+    console.log("(검증실패) 트랜잭션의 인풋의 서명이 string이 아니네요");
+    return false;
+  } else if (typeof txIn.txOutId !== "string") {
+    console.log("(검증실패) 트랜잭션의 인풋의 txOutId가 string이 아니네요");
+    return false;
+  } else if (typeof txIn.txOutIndex !== "number") {
+    console.log("(검증실패) 트랜잭션의 인풋의 txOutIndex가 number가 아니네요");
+    return false;
+  } else {
+    return true;
+  }
 };
+
+// 트랜잭션의 아웃풋 구조 검증
 const isValidTxOutStructure = (txOut) => {
-    if (txOut == null) {
-        console.log('txOut is null');
-        return false;
-    }
-    else if (typeof txOut.address !== 'string') {
-        console.log('invalid address type in txOut');
-        return false;
-    }
-    else if (!isValidAddress(txOut.address)) {
-        console.log('invalid TxOut address');
-        return false;
-    }
-    else if (typeof txOut.amount !== 'number') {
-        console.log('invalid amount type in txOut');
-        return false;
-    }
-    else {
-        return true;
-    }
+  if (txOut == null) {
+    console.log("(검증실패) 트랜잭션의 아웃풋이 null 입니다");
+    return false;
+  } else if (typeof txOut.address !== "string") {
+    console.log("(검증실패) 트랜잭션의 아웃풋의 주소가 string이 아니네요");
+    return false;
+  } else if (!isValidAddress(txOut.address)) {
+    console.log("(검증실패) 트랜잭션의 아웃풋의 주소가 잘못됐어요");
+    return false;
+  } else if (typeof txOut.amount !== "number") {
+    console.log("(검증실패) 트랜잭션의 아웃풋의 코인이 number가 아니에요");
+    return false;
+  } else {
+    return true;
+  }
 };
-//트랜잭션은 정의된 방식을 따라야만 해요.
+
+// 트랜잭션 구조 검증
 const isValidTransactionStructure = (transaction) => {
-    if (typeof transaction.id !== 'string') {
-        console.log('transactionId missing');
-        return false;
-    }
-    if (!(transaction.txIns instanceof Array)) {
-        console.log('invalid txIns type in transaction');
-        return false;
-    }
-    if (!transaction.txIns
-        .map(isValidTxInStructure)
-        .reduce((a, b) => (a && b), true)) {
-        return false;
-    }
-    if (!(transaction.txOuts instanceof Array)) {
-        console.log('invalid txIns type in transaction');
-        return false;
-    }
-    if (!transaction.txOuts
-        .map(isValidTxOutStructure)
-        .reduce((a, b) => (a && b), true)) {
-        return false;
-    }
-    return true;
+  if (typeof transaction.id !== "string") {
+    console.log("(검증실패) 트랜잭션 id가 문자열이 아닙니다");
+    return false;
+  }
+  if (!(transaction.txIns instanceof Array)) {
+    console.log("(검증실패) 트랜잭션의 txIns가 배열이 아닙니다");
+    return false;
+  }
+  if (
+    // 트랜잭션의 txIns에 들어있는 인풋들 구조 검사
+    !transaction.txIns.map(isValidTxInStructure).reduce((a, b) => a && b, true)
+  ) {
+    return false;
+  }
+  if (!(transaction.txOuts instanceof Array)) {
+    console.log("(검증실패) 트랜잭션의 txOuts가 배열이 아닙니다");
+    return false;
+  }
+  if (
+    // 트랜잭션의 txOuts에 들어있는 아웃풋들 구조 검사
+    !transaction.txOuts
+      .map(isValidTxOutStructure)
+      .reduce((a, b) => a && b, true)
+  ) {
+    return false;
+  }
+  return true;
 };
-// valid address is a valid ecdsa public key in the 04 + X-coordinate + Y-coordinate format
+
+// 지갑 공개키 검증
 const isValidAddress = (address) => {
-    if (address.length !== 130) {
-        console.log(address);
-        console.log('invalid public key length');
-        return false;
-    }
-    else if (address.match('^[a-fA-F0-9]+$') === null) {
-        console.log('public key must contain only hex characters');
-        return false;
-    }
-    else if (!address.startsWith('04')) {
-        console.log('public key must start with 04');
-        return false;
-    }
-    return true;
+  // 공개키가 130자가 아니면
+  if (address.length !== 130) {
+    console.log("공개키가 130자가 아니네요");
+    return false;
+  } else if (address.match("^[a-fA-F0-9]+$") === null) {
+    console.log("공개키가 16진수가 아니네요");
+    return false;
+  } else if (!address.startsWith("04")) {
+    console.log("공개키가 '04'로 시작하지 않네요");
+    return false;
+  }
+  return true;
 };
-module.exports= { processTransactions, signTxIn, getTransactionId, isValidAddress, validateTransaction, UnspentTxOut, TxIn, TxOut, getCoinbaseTransaction, getPublicKey, hasDuplicates, Transaction };
 
-/**코인을 보낼 때 사용자는 트랜잭션 인풋이니 아웃풋이니 알 필요가 없다고 했죠. 그럼 이 사용자 A가 단 한번의 트랜잭션으로 그가 가진 50코인 중 단지 10코인만 B에게 보내고 싶다면 어떻게 해야 할까요? 방법은 10코인은 B에게 보내고 나머지 40코인은 그 자신에게 돌려보내(back)는 거죠. 전체 트랜잭션 아웃풋은 항상 소진(spent)되어야 하고, 만약 부분으로 나누고 싶다면 새로운 아웃풋을 생성함으로 가능해요. 그림을 보시죠.
- * 
- * 좀 더 복잡한 트랜잭션을 시도해 보죠.
-
-User C에겐 코인이 없었어요
-User C가 3트랜잭션으로 10, 20, 30코인을 차례로 받았어요
-User C는 55코인을 user D에게 보내길 원해요. 트랜잭션은 어떻게 이루어져야 할까요?
-이 경우 3번에 걸친 아웃풋이 모두 사용되어야 해요. 55코인은 D에게 보내고 5는 자신에게 back.
- */
+module.exports = {
+  processTransactions,
+  signTxIn,
+  getTransactionId,
+  isValidAddress,
+  validateTransaction,
+  UnspentTxOut,
+  TxIn,
+  TxOut,
+  getCoinbaseTransaction,
+  getPublicKey,
+  hasDuplicates,
+  Transaction,
+};

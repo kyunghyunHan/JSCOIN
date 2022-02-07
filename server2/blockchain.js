@@ -1,365 +1,519 @@
-const  CryptoJS =require('crypto-js') ;
-const _ =require('lodash') ;
-const { broadcastLatest, broadCastTransactionPool } =require( './p2p');
-const { getCoinbaseTransaction, isValidAddress, processTransactions } =require('./transaction') ;
-const { addToTransactionPool, getTransactionPool, updateTransactionPool } =require('./transactionPool') ;
-const { hexToBinary } =require('./util') ;
-const { createTransaction, findUnspentTxOuts, getBalance, getPrivateFromWallet, getPublicFromWallet } =require('./wallet') ;
-const { BlcokChainDB, CoinDB } = require("./models");
-/*Index: 블록체인에서 해당 블록의 순서
-Data: 블록에 담긴 데이터
-Timestamp: 타임스템프
-Hash: sha256알고리즘으로 만들어진 해쉬값
-previousHash: 이전 블록의 해쉬값. 앞의 블록에서 이미 정해지게 되죠.
+const CryptoJS = require("crypto-js");
+const _ = require("lodash");
+const P2P = require("./p2p");
+const TX = require("./transaction");
+const TP = require("./transactionPool");
+const { hexToBinary } = require("./util");
+const WALLET = require("./wallet");
 
+// // 블록 구조 정의
+// class Block {
+//   constructor(header, body) {
+//     this.header = header;
+//     this.body = body;
+//   }
+// }
+// // 블록.헤더 구조 정의
+// class BlockHeader {
+//   constructor(
+//     index,
+//     previousHash,
+//     timestamp,
+//     merkleRoot,
+//     difficulty,
+//     nonce,
+//     version
+//   ) {
+//     this.index = index;
+//     this.previousHash = previousHash;
+//     this.timestamp = timestamp;
+//     this.merkleRoot = merkleRoot;
+//     this.hash = hash;
+//     this.difficulty = difficulty;
+//     this.nonce = nonce;
+//     this.version = version;
+//   }
+// }
+// // 블록.바디 구조 정의
+// class BlockBody {
+//   constructor(transactions) {
+//     this.transactions = [transactions];
+//   }
+// }
 
-*/
-/**
- * 난이도difficulty를 만족하는 해시값을 찾기 위해서는 같은 블록에서 여러번 반복적으로 해시값을 계산해야해요. 
- * 이 때 nonce라는 값을 사용하죠. SHA256이라는 해시함수를 써서 매순간 다른 해시값을 찾아낼 수 있어요.
- *  ‘채굴(mining’이란 기본적으로 난이도를 만족하는 해시값을 찾기 위해 반복적으로 매번 다른 nonce값을 시도해 보는 과정을 의미해요. 
- * difficulty와 noce가 추가된 블록 클래스를 보시죠.
-
-
- */
+// 블록 구조 정의
 class Block {
-    constructor(index, hash, previousHash, timestamp, data, difficulty, nonce) {
-        this.index = index;
-        this.previousHash = previousHash;
-        this.timestamp = timestamp;
-        this.data = data;
-        this.hash = hash;
-        this.difficulty = difficulty;
-        this.nonce = nonce;
-    }
+  constructor(index, hash, previousHash, timestamp, data, difficulty, nonce) {
+    this.index = index;
+    this.previousHash = previousHash;
+    this.timestamp = timestamp;
+    this.data = data;
+    this.hash = hash;
+    this.difficulty = difficulty;
+    this.nonce = nonce;
+  }
 }
-//유효한 private key는 32byte의 문자열
-//유효한 public key는 ‘04’가 붙은 64byte 문자열
+
+// 제네시스 트랜잭션
 const genesisTransaction = {
-    'txIns': [{ 'signature': '', 'txOutId': '', 'txOutIndex': 0 }],
-    'txOuts': [{
-            'address': '04bfcab8722991ae774db48f934ca79cfb7dd991229153b9f732ba5334aafcd8e7266e47076996b55a14bf9913ee3145ce0cfc1372ada8ada74bd287450313534a',
-            'amount': 50
-        }],
-    'id': 'e655f6a5f26dc9b4cac6e46f52336428287759cf81ef5ff10854f69d68f43fa3'
+  txIns: [{ signature: "", txOutId: "", txOutIndex: 0 }],
+  txOuts: [
+    {
+      address:
+        "04bfcab8722991ae774db48f934ca79cfb7dd991229153b9f732ba5334aafcd8e7266e47076996b55a14bf9913ee3145ce0cfc1372ada8ada74bd287450313534a",
+      amount: 50,
+    },
+  ],
+  id: "e655f6a5f26dc9b4cac6e46f52336428287759cf81ef5ff10854f69d68f43fa3",
 };
-//최초의 블록
-const genesisBlock = new Block(0, '91a73664bc84c0baa1fc75ea6e4aa6d1d20c5df664c724e3159aefc2e1186627', '', 1465154705, [genesisTransaction], 0, 0);
+// 제네시스 블록
+const genesisBlock = new Block(
+  0,
+  "91a73664bc84c0baa1fc75ea6e4aa6d1d20c5df664c724e3159aefc2e1186627",
+  "",
+  1465154705,
+  [genesisTransaction],
+  0,
+  0
+);
+
+// 블록체인 초기(제네시스블록)
 let blockchain = [genesisBlock];
-// Genesis 블록의 사용되지 않은 txOut은 시작 시 unspentTxOuts로 설정됩니다.
-let unspentTxOuts = processTransactions(blockchain[0].data, [], 0);
+
+// 미사용 트랜잭션 아웃풋 목록(공용장부).
+// 초기 상태는 제네시스 블록에서 나온 미사용 트랜잭션
+let unspentTxOuts = TX.processTransactions(blockchain[0].data, [], 0);
+
+// 내 블록체인 가져오기
 const getBlockchain = () => blockchain;
+
+// 내 공용장부 가져오기
 const getUnspentTxOuts = () => _.cloneDeep(unspentTxOuts);
-// txPool은 동시에 업데이트되어야 합니다.
+
+// 새로만들거나 받은 미사용 트랜잭션 목록(공용장부)로  교체
 const setUnspentTxOuts = (newUnspentTxOut) => {
-    console.log('unspentTxouts 대체: %s', newUnspentTxOut);
-    unspentTxOuts = newUnspentTxOut;
+  unspentTxOuts = newUnspentTxOut;
+  console.log("공용장부(unspentTxouts)를 최신화합니다");
 };
-function getLastBlock(){
-    return blockchain[blockchain.length - 1];} 
-//초
 
-/**우리는 이제 주어진 difficulty값을 가지고 해시값을 찾고, 그 값이 유효한지 검증할 수 있게 되었어요. 
- * 하지만 difficulty값은 어떻게 정해야 할까요? 이를 위해서는 difficulty값을 계산하는 로직이 필요하겠네요.
- *  상수를 몇개 정의하는 걸로 시작해 보죠.
-우리는 BLOCK_GENERATION_INTERVAL값은 10초, DIFFICULTY_ADJUSTMENT_INTERVAL값은 10블록 마다로 정할게요. 이 상수값들은 변하지 않으므로 하드코딩할게요. */
-//BLOCK_GENERATION_INTERVAL: 블록은 얼마나 자주 채굴되는가(Bitcoin의 경우 10분 간격이죠.)
+// 내 마지막 블록 가져오기
+const getLatestBlock = () => blockchain[blockchain.length - 1];
+
+// 블록생성 간격 10초
 const BLOCK_GENERATION_INTERVAL = 10;
-// DIFFICULTY_ADJUSTMENT_INTERVAL: 난이도difficulty는 얼마나 자주 조정되는가(Bitcoin은 2016블록마다 조정돼요.)
-const DIFFICULTY_ADJUSTMENT_INTERVAL = 10;
-/**만약 예상시간보다 실제 걸리는 시간이 두 배 이상 크거나 작다면 우리는 difficulty값을 조정함으로써 예상시간에 가까이 가고자 노력할 거에요.
- *  이렇게 난이노difficulty조정은 이루어지죠. 즉 채굴간격을 유지하기 위해 difficulty값을 조정하는 거죠. . */
+
+// 난이도 조정 간격 블록 5개당
+const DIFFICULTY_ADJUSTMENT_INTERVAL = 5;
+
+// 나니도 가져오기
 const getDifficulty = (aBlockchain) => {
-    const latestBlock = aBlockchain[blockchain.length - 1];
-    if (latestBlock.index % DIFFICULTY_ADJUSTMENT_INTERVAL === 0 && latestBlock.index !== 0) {
-        return getAdjustedDifficulty(latestBlock, aBlockchain);
+  // 마지막 블록 = 블록체인의 길이에서 1을 뺀 인덱스값(길이는 1, 배열 접근하는 인덱스는 0으로 시작하니까)
+  const latestBlock = aBlockchain[blockchain.length - 1];
+  // 마지막 블록의 인덱스를 난이도 조정 간격인 5로 나눠떨어지면서 &&
+  // 마지막 블록이 제네시스 블록이 아닌 경우(결론 블록 5개마다)
+  if (
+    latestBlock.index % DIFFICULTY_ADJUSTMENT_INTERVAL === 0 &&
+    latestBlock.index !== 0
+  ) {
+    if (latestBlock.difficulty == 0) {
+      return latestBlock.difficulty;
     }
-    else {
-        return latestBlock.difficulty;
-    }
+    // 난이도를 조정해서 반환하기
+    return getAdjustedDifficulty(latestBlock, aBlockchain);
+    // 블록 1~4개까지는 마지막 블록과 동일한 난이도로 유지
+  } else {
+    return latestBlock.difficulty;
+  }
 };
+
+// (마지막 블록이랑 5개 이전 블록 비교하여) 난이도 조정
 const getAdjustedDifficulty = (latestBlock, aBlockchain) => {
-    const prevAdjustmentBlock = aBlockchain[blockchain.length - DIFFICULTY_ADJUSTMENT_INTERVAL];
-    const timeExpected = BLOCK_GENERATION_INTERVAL * DIFFICULTY_ADJUSTMENT_INTERVAL;
-    const timeTaken = latestBlock.timestamp - prevAdjustmentBlock.timestamp;
-    if (timeTaken < timeExpected / 2) {
-        return prevAdjustmentBlock.difficulty + 1;
-    }
-    else if (timeTaken > timeExpected * 2) {
-        return prevAdjustmentBlock.difficulty - 1;
-    }
-    else {
-        return prevAdjustmentBlock.difficulty;
-    }
+  // 난이도 조정 1회만큼 이전 블록 (마지막 블록에서 조정간격인 5개 전 블록을 통해 알수있음)
+  const prevAdjustmentBlock =
+    aBlockchain[blockchain.length - DIFFICULTY_ADJUSTMENT_INTERVAL];
+  // 예상시간 (난이도 조정을 어떻게 할지 기준점이 되는 시간 50초)
+  const timeExpected =
+    BLOCK_GENERATION_INTERVAL * DIFFICULTY_ADJUSTMENT_INTERVAL;
+  // 소요시간 (마지막 블록과 5개 이전 블록의 시간차로 구함)
+  const timeTaken = latestBlock.timestamp - prevAdjustmentBlock.timestamp;
+
+  // 블록 5개가 새로 채굴될 동안 흐른 시간이 25초 미만이면 난이도 1증가
+  if (timeTaken < timeExpected / 2) {
+    return prevAdjustmentBlock.difficulty + 1;
+    // 블록 5개가 새로 채굴될 동안 흐른 시간이 100초 초과이면 난이도 1감소
+  } else if (timeTaken > timeExpected * 2) {
+    return prevAdjustmentBlock.difficulty - 1;
+    // 블록5개 채굴시간이 25~100초 사이이면 난이도 냅두기
+  } else {
+    return prevAdjustmentBlock.difficulty;
+  }
 };
+
+// 현재시간을 타임스탬프 형식으로
 const getCurrentTimestamp = () => Math.round(new Date().getTime() / 1000);
+
+// 새 블록 생성
 const generateRawNextBlock = (blockData) => {
-    const previousBlock = getLastBlock();
-    const difficulty = getDifficulty(getBlockchain());
-    const nextIndex = previousBlock.index + 1;
-    const nextTimestamp = getCurrentTimestamp();
-    const newBlock = findBlock(nextIndex, previousBlock.hash, nextTimestamp, blockData, difficulty);
-    if (addBlockToChain(newBlock)) {
-        broadcastLatest();
-        return newBlock;
-    }
-    else {
-        return null;
-    }
+  const previousBlock = getLatestBlock(); // 마지막 블록
+  // 현재 블록체인을 통해 난이도 가져오기
+  const difficulty = getDifficulty(getBlockchain());
+  // 새 블록의 인덱스는 마지막 블록 인덱스보다 1 큼
+  const nextIndex = previousBlock.index + 1;
+  // 현재 시간을 새 블록의 타임스탬프로
+  const nextTimestamp = getCurrentTimestamp();
+  // 위 내용들과 블록에 들어갈 코인베이스, 트랜잭션들을 가지고
+  // 알맞는 해시값 찾아 채굴하기
+  const newBlock = findBlock(
+    nextIndex,
+    previousBlock.hash,
+    nextTimestamp,
+    blockData,
+    difficulty
+  );
+  // 블록체인에 채굴한 블록 추가하고 그 블록 전파하기
+  if (addBlockToChain(newBlock)) {
+    P2P.broadcastLatest();
+    return newBlock;
+  } else {
+    return null;
+  }
 };
-// 지갑이 소유한 미사용 트랜잭션 출력을 가져옵니다.
+
+// 내 지갑에 해당하는 미사용 트랜잭션 찾아서 불러오기
+// 공용장부에서 내 공개키와 일치하는 정보만 반환
 const getMyUnspentTransactionOutputs = () => {
-    return findUnspentTxOuts(getPublicFromWallet(), getUnspentTxOuts());
+  return WALLET.findUnspentTxOuts(
+    WALLET.getPublicFromWallet(),
+    getUnspentTxOuts()
+  );
 };
-/**다음으로 우리는 트랜젝션 풀에 들어온 트랜젝션을 블럭체인 상의 블럭으로 만드는 작업을 할 거에요. 그리 어렵지 않아요. 노드가 블럭을 채굴하는 작업을 시작할 때 트랜젝션 풀로부터 트랜젝션을 받아 새로운 예비블럭에 추가해 담는 거죠. */
+
+// 새 블록 생성
 const generateNextBlock = () => {
-    const coinbaseTx = getCoinbaseTransaction(getPublicFromWallet(), getLastBlock().index + 1);
-    const blockData = [coinbaseTx].concat(getTransactionPool());
-    return generateRawNextBlock(blockData);
+  // 내가 채굴했으니 내 지갑 공개키 담은 코인베이스 트랜잭션 생성
+  const coinbaseTx = TX.getCoinbaseTransaction(
+    WALLET.getPublicFromWallet(),
+    // 아직 블록 추가하기 전 단계이므로 새블록의 인덱스를 넣기위해 마지막블록의 인덱스+1
+    getLatestBlock().index + 1
+  );
+  // 코인베이스 트랜잭션[]이랑 그동안 생긴 트랜잭션[]이랑
+  // concat으로 뚝딱 합쳐서 새 블록 생성하자
+  const blockData = [coinbaseTx].concat(TP.getTransactionPool());
+  return generateRawNextBlock(blockData);
 };
+
+// 코인베이스트랜잭션과 채굴자의 트랜잭션만 만들어 가지고 블록 생성
+// (풀에 들어있던 트랜잭션들은 그냥 냅두는거) (사용 안함)
 const generatenextBlockWithTransaction = (receiverAddress, amount) => {
-    if (!isValidAddress(receiverAddress)) {
-        throw Error('잘못된 주소');
-    }
-    if (typeof amount !== 'number') {
-        throw Error('유효하지 않은 금액');
-    }
-    const coinbaseTx = getCoinbaseTransaction(getPublicFromWallet(), getLastBlock().index + 1);
-    const tx = createTransaction(receiverAddress, amount, getPrivateFromWallet(), getUnspentTxOuts(), getTransactionPool());
-    const blockData = [coinbaseTx, tx];
-    return generateRawNextBlock(blockData);
+  if (!TX.isValidAddress(receiverAddress)) {
+    throw Error("주소가 잘못되었어요");
+  }
+  if (typeof amount !== "number") {
+    throw Error("코인의 type이 number가 아니에요");
+  }
+  // 코인베이스 트랜잭션 만들기
+  const coinbaseTx = TX.getCoinbaseTransaction(
+    WALLET.getPublicFromWallet(),
+    getLatestBlock().index + 1
+  );
+  // 트랜잭션 만들기
+  const tx = WALLET.createTransaction(
+    receiverAddress,
+    amount,
+    WALLET.getPrivateFromWallet(),
+    getUnspentTxOuts(),
+    TP.getTransactionPool()
+  );
+  // 코인베이스랑 방금 만든 트랜잭션이랑 블록 데이터로 넣고 채굴
+  const blockData = [coinbaseTx, tx];
+  return generateRawNextBlock(blockData);
 };
 
-/**유효한 해시값을 찾기 위해서 우리는 nonce값을 증가시켜야 해요. 
- * 만족하는 값을 찾는 과정은 완벽하게 랜덤하게 이루어져요. 
- * 우리는 단지 ‘해시값을 찾을 때까지’ 반복문을 돌릴 수 있을 뿐이죠. */
+// 블록 찾기(채굴)
 const findBlock = (index, previousHash, timestamp, data, difficulty) => {
-    let nonce = 0;
-    while (true) {
-        const hash = calculateHash(index, previousHash, timestamp, data, difficulty, nonce);
-        if (hashMatchesDifficulty(hash, difficulty)) {
-            return new Block(index, hash, previousHash, timestamp, data, difficulty, nonce);
-        }
-        nonce++;
-    }
-};
-const getAccountBalance = () => {
-    return getBalance(getPublicFromWallet(), getUnspentTxOuts());
-};
-const sendTransaction = (address, amount) => {
-    const tx = createTransaction(address, amount, getPrivateFromWallet(), getUnspentTxOuts(), getTransactionPool());
-    addToTransactionPool(tx, getUnspentTxOuts());
-    broadCastTransactionPool();
-    return tx;
-};
-const calculateHashForBlock = (block) => calculateHash(block.index, block.previousHash, block.timestamp, block.data, block.difficulty, block.nonce);
-/**
- * 블록해쉬는 블록에서 가장 중요한 것 중 하나에요. 
- * 해쉬값은 블록이 가진 데이터를 기반으로 계산되죠. 
- * 즉 블록의 어떤 데이터라도 변하면 기존의 해쉬값은 무의미해지는 거죠.
- *  또 해쉬값은 해당 블록의 고유한 식별자로도 기능해요. 그래서 같은 인덱스를 가진 블록은 있을 수 있지만 해쉬값은 모두 달라요.
-
- */
-const calculateHash = (index, previousHash, timestamp, data, difficulty, nonce) => CryptoJS.SHA256(index + previousHash + timestamp + data + difficulty + nonce).toString();
-const isValidBlockStructure = (block) => {
-    return typeof block.index === 'number'
-        && typeof block.hash === 'string'
-        && typeof block.previousHash === 'string'
-        && typeof block.timestamp === 'number'
-        && typeof block.data === 'object';
-};
-
-/**어떤 블록이 유효한 블록인지 검사하는 것은 매우 중요하겠죠. 특히 다른 노드로부터 받은 블록이라면 더더욱. 다음 항목들로 블록의 유효성을 검사할 거에요.
-
-이전 블록보다 인덱스값이 1 클 것.
-previousHash값이 이전블록의 hash값일 것.
-hash값이 유효한 값일 것. 다음의 코드로 이를 검사할 수 있어요. */
-const isValidNewBlock = (newBlock, previousBlock) => {
-    if (!isValidBlockStructure(newBlock)) {
-        console.log('유효하지 않은 블록 구조: %s', JSON.stringify(newBlock));
-        return false;
-    }
-    if (previousBlock.index + 1 !== newBlock.index) {
-        console.log('유효하지  않은index');
-        return false;
-    }
-    else if (previousBlock.hash !== newBlock.previousHash) {
-        console.log('유효하지  않은previoushash');
-        return false;
-    }
-    else if (!isValidTimestamp(newBlock, previousBlock)) {
-        console.log('유효하지 않은timestamp');
-        return false;
-    }
-    else if (!hasValidHash(newBlock)) {
-        return false;
-    }
-    return true;
-};
-/**챕터1에서 ‘옳은 체인’은 ‘가장 긴 체인’이라고 했던 거 기억하시나요? 이제 이 명제는 변해야만 해요. ‘difficulty가 가장 많이 누적된 체인’이 ‘옳은 체인’이죠. 다시 말하면 옳은 체인은 새로운 블록을 생성하기 위해 가장 많은 자원(resources)을 요구하는, 가장 오래 걸리는(hashRate*time) 체인이에요.
-
-누적 난이도는 2를 difficulty값만큼 곱한 2^을 모두 더하여 계산돼요. 해시값을 2진수로 바꿨을 때 시작부분의 0의 갯수가 diffculty값이였던 거 기억하시죠? 예를 들면 난이도5와 난이도11은 각각 2의 5승, 2의 11승 만큼의 채굴시간이 걸린다고 보는 거죠. 따라서 아래 그림에서 Chain B가 ‘옳은 체인’이에요. */
-const getAccumulatedDifficulty = (aBlockchain) => {
-    return aBlockchain
-        .map((block) => block.difficulty)
-        .map((difficulty) => Math.pow(2, difficulty))
-        .reduce((a, b) => a + b);
-};
-/**이 값은 난이도difficulty 조정과 관련하여 블록의 유효성을 검증하는데 사용될 거에요. 
- * timestamp값으로 블록이 정상적인 난이도 조정을 거친 블록인지 검증하죠. */
-const isValidTimestamp = (newBlock, previousBlock) => {
-    return (previousBlock.timestamp - 60 < newBlock.timestamp)
-        && newBlock.timestamp - 60 < getCurrentTimestamp();
-};
-
-
-const hasValidHash = (block) => {
-    if (!hashMatchesBlockContent(block)) {
-        console.log('유효하지 않은 hash, got:' + block.hash);
-        return false;
-    }
-    if (!hashMatchesDifficulty(block.hash, block.difficulty)) {
-        console.log('블록 난이도가 만족되지 않습니다. 예상되는: ' + block.difficulty + 'got: ' + block.hash);
-    }
-    return true;
-};
-const hashMatchesBlockContent = (block) => {
-    const blockHash = calculateHashForBlock(block);
-    return blockHash === block.hash;
-};
-//블록의 해시값이 난이도difficulty를 만족하는지 확인하는 코드
-const hashMatchesDifficulty = (hash, difficulty) => {
-    const hashInBinary = hexToBinary(hash);
-    const requiredPrefix = '0'.repeat(difficulty);
-    return hash.startsWith(requiredPrefix);
-};
-/*
-   
-주어진 블록체인이 유효한지 확인합니다. 체인이 유효한 경우 사용되지 않은 txOuts를 반환합니다.
- 특정 시점에 ’옳은’ 체인은 하나만 존재해야만 해요.
-  (모든 블록이 정상적이라는 전제 아래) 일단 가장 긴 체인을 ‘옳은’ 체인으로 간주할게요.
- 왜냐하면 모든 체인은 (이상적으로는) 동일해야 하고, 체인이 길다는 것은 다른 노드가 ‘아직’ 받지 못한 블록을 가지고 있다고 볼 수 있기 때문이죠.
-언젠가는 모든 노드가 그 블록을 받아야 할 거에요. 그림.
- */
-
-const isValidChain = (blockchainToValidate) => {
-    console.log('isValidChain:');
-    console.log(JSON.stringify(blockchainToValidate));
-    const isValidGenesis = (block) => {
-        return JSON.stringify(block) === JSON.stringify(genesisBlock);
-        
-    };
-    if (!isValidGenesis(blockchainToValidate[0])) {
-        
-        return null;
-    }
-    /*
-   체인의 각 블록을 검증합니다. 블록 구조가 유효하면 블록이 유효합니다.
-      그리고 거래가 유효합니다
-     */
-    let aUnspentTxOuts = [];
-    for (let i = 0; i < blockchainToValidate.length; i++) {
-        const currentBlock = blockchainToValidate[i];
-        if (i !== 0 && !isValidNewBlock(blockchainToValidate[i], blockchainToValidate[i - 1])) {
-            return null;
-        }
-        aUnspentTxOuts = processTransactions(currentBlock.data, aUnspentTxOuts, currentBlock.index);
-        if (aUnspentTxOuts === null) {
-            console.log('(invalid transactions in blockchain)(블록체인의 잘못된 거래)');
-            return null;
-        }
-    }
-    return aUnspentTxOuts;
-};
-const addBlockToChain = (newBlock) => {
-    if (isValidNewBlock(newBlock, getLastBlock())) {
-        const retVal = processTransactions(newBlock.data, getUnspentTxOuts(), newBlock.index);
-        if (retVal === null) {
-            console.log('블록은 트랜잭션 측면에서 유효하지 않습니다.');
-            return false;
-        }
-        else {
-            blockchain.push(newBlock);
-            
-            setUnspentTxOuts(retVal);
-            updateTransactionPool(unspentTxOuts);
-            BlcokChainDB.create({
-                BlockChain: newBlock,
-                Coin: 50,
-              });
-              CoinDB.create({
-                Coin: 50,
-              });
-            return true;
-        }
-    }
-    return false;
-};
-/**노드 사이에 통신이 있어야하는 것은 블록체인의 필수요소에요. 데이터의 ‘싱크’를 맞춰야 하기 때문이죠. 다음 룰이 노드 사이의 네트워크에 적용됨으로써 데이터 싱크를 맞추죠.
-
-노드가 새 블록을 만들면 그것을 네트워크로 방출(발송,broadcast)해야한다.
-노드 간에 연결될 때, 각자 지니고 있는 가장 마지막 블록이 무엇인지를 파악한다.
-자기보다 긴 체인과 연결되면 상대가 가진 블록 중 내가 가진 블록 이후의 모든 블록을 추가하여 싱크를 맞춘다.
- */
-async function replaceChain (newBlocks)  {
-    const aUnspentTxOuts = isValidChain(newBlocks);
-    const validChain = aUnspentTxOuts !== null;
-    if (validChain &&
-        getAccumulatedDifficulty(newBlocks) > getAccumulatedDifficulty(getBlockchain())) {
-        console.log('Received blockchain is valid. Replacing current blockchain with received blockchain(수신된 블록체인이 유효합니다. 현재 블록체인을 받은 블록체인으로 교체)');
-        blockchain = newBlocks;
-        setUnspentTxOuts(aUnspentTxOuts);
-        updateTransactionPool(unspentTxOuts);
-        broadcast();
-        BlcokChainDB.destroy({ where: {}, truncate: true });
-        for (let i = 0; i < newBlocks.length; i++) {
-            await BlcokChainDB.create({ BlockChain: newBlocks[i] });
-          }
-    }
-    else {
-        console.log('Received blockchain invalid(수신된 블록체인이 유효하지 않음)');
-    }
-};
-const handleReceivedTransaction = (transaction) => {
-    addToTransactionPool(transaction, getUnspentTxOuts());
-};
-
-
-function dbBlockCheck(DBBC) {
-    let bc = [];
-    DBBC.forEach((blockchain) => {
-      bc.push(blockchain.BlockChain);
-    });
-  
-    if (bc.length === 0) {
-      BlcokChainDB.create({ BlockChain: creatGenesisBlock() });
-      bc.push(creatGenesisBlock());
-    }
-    const DBBlock = bc[bc.length - 1];
-    const latesMyBlock = getLastBlock();
-  
-    if (DBBlock.index < latesMyBlock.index) {
-      console.log(
-        "DB 시작전  \n" +
-        `DB 블록의 index 값 ${DBBlock.index}\n` +
-        `현재 보유중인 index값 ${latesMyBlock.index}\n`
+  let nonce = 0; // 해시를 계산해서 난이도와 알맞는 해시가 될때까지
+  while (true) {
+    // nonce를 증가시키며 반복할것임
+    const hash = calculateHash(
+      index,
+      previousHash,
+      timestamp,
+      data,
+      difficulty,
+      nonce
+    ); // 난이도와 부합하는 해시가 나왔으면 블록으로 반환
+    if (hashMatchesDifficulty(hash, difficulty)) {
+      return new Block(
+        index,
+        hash,
+        previousHash,
+        timestamp,
+        data,
+        difficulty,
+        nonce
       );
-  
-      if (createHash(DBBlock) === latesMyBlock.previousHash) {
-        console.log(`DB에 다음 블록 추가`);
-        BlcokChainDB.create({
-          BlockChain: latesMyBlock,
-        }).catch((err) => {
-          console.log(err);
-          throw err;
-        });
-      } else {
-        console.log(`DB 초기화중`);
-        replaceChain(getBlocks());
-      }
-    } else {
-      console.log("DB 초기화 완료");
-      Blocks = bc;
+    }
+    nonce++;
+  }
+};
+
+// 내 지갑 잔고 조회
+const getAccountBalance = () => {
+  // 미사용 트랜잭션(getUnspentTxOuts)에서
+  // 내 지갑(getPublicFromWallet)에 해당하는 녀석 찾아옴
+  return WALLET.getBalance(WALLET.getPublicFromWallet(), getUnspentTxOuts());
+};
+
+// 트랜잭션 보내기 (내가 누군가에게 코인 보내는 것)
+const sendTransaction = (address, amount) => {
+  // 트랜잭션 만들어서 <- (누군가의 주소, 코인양, 내지갑주소, 공용장부, 내트랜잭션풀)
+  const tx = WALLET.createTransaction(
+    address, // 내가 A한테 amount만큼 보낼거임 address는 A의 주소
+    amount, // 코인양
+    WALLET.getPrivateFromWallet(), // 코인 꺼낼 내 지갑주소
+    getUnspentTxOuts(), // 공용장부 불러오기
+    TP.getTransactionPool() // 트랜잭션풀 불러오기
+  );
+  // 트랜잭션풀에 쑤셔넣고
+  TP.addToTransactionPool(tx, getUnspentTxOuts());
+  // 그 트랜잭션풀 방방곡곡 소문내기
+  P2P.broadCastTransactionPool();
+  console.log("트랜잭션을 소문낼게요");
+  return tx;
+};
+
+// 받은 블록 해시 계산하기
+const calculateHashForBlock = (block) =>
+  calculateHash(
+    block.index,
+    block.previousHash,
+    block.timestamp,
+    block.data,
+    block.difficulty,
+    block.nonce
+  );
+
+// 해시 계산
+const calculateHash = (
+  index,
+  previousHash,
+  timestamp,
+  data,
+  difficulty,
+  nonce
+) =>
+  CryptoJS.SHA256(
+    index + previousHash + timestamp + data + difficulty + nonce
+  ).toString();
+
+// 블록구조 검사
+const isValidBlockStructure = (block) => {
+  return (
+    typeof block.index === "number" &&
+    typeof block.hash === "string" &&
+    typeof block.previousHash === "string" &&
+    typeof block.timestamp === "number" &&
+    typeof block.data === "object"
+  );
+};
+
+// 이전블록과 비교해서 알맞은 블록인지 검증
+// (새 블록 추가할 때(addBlockToChain), 블록체인 교체할 때(replaceChain) 사용됨)
+const isValidNewBlock = (newBlock, previousBlock) => {
+  if (!isValidBlockStructure(newBlock)) {
+    console.log(
+      "블록검증실패: 블록 구조가 잘못됐어요",
+      JSON.stringify(newBlock)
+    );
+    return false;
+  }
+  if (previousBlock.index + 1 !== newBlock.index) {
+    console.log("블록검증실패: 인덱스가 잘못됐어요");
+    return false;
+  } else if (previousBlock.hash !== newBlock.previousHash) {
+    console.log("블록검증실패: 이전블록의 해시와 새블록의 해시가 달라요");
+    return false;
+  } else if (!isValidTimestamp(newBlock, previousBlock)) {
+    console.log("블록검증실패: 타임스탬프가 잘못됐어요");
+    return false;
+  } else if (!hasValidHash(newBlock)) {
+    console.log("블록검증실패: 해시가 잘못됐어요");
+    return false;
+  }
+  return true;
+};
+
+// 누적 난이도 계산해주는 녀석
+const getAccumulatedDifficulty = (aBlockchain) => {
+  return (
+    aBlockchain // 블록체인의 블록마다 난이도를 꺼내와서
+      .map((block) => block.difficulty)
+      // 2^난이도 만큼 누적난이도에 더해주기
+      .map((difficulty) => Math.pow(2, difficulty))
+      .reduce((a, b) => a + b)
+  );
+};
+
+// 타임스탬프 검증하기
+const isValidTimestamp = (newBlock, previousBlock) => {
+  return (
+    // 이전블록 타임스탬프-60초 보다 새블록 타임스탬프가 크고 &&
+    // 새블록 타임스탬프-60초 보다 현재시간이 크면 허용
+    previousBlock.timestamp - 60 < newBlock.timestamp &&
+    newBlock.timestamp - 60 < getCurrentTimestamp()
+  );
+  // 이전블록보다 새블록이 60초까진 일찍 나와도 네트워크시간 오차로 허용하고
+  // 새블록이 내 시간보다 60초까진 일찍 나와도 네트워크시간 오차로 허용한다는 의미일듯
+};
+
+// 해시 검증하기
+const hasValidHash = (block) => {
+  // 블록의 해시와 블록의 데이터들로 계산해본 해시가 다르면
+  if (!hashMatchesBlockContent(block)) {
+    console.log("블록에 입력된 해시가 실제 해시와 달라요");
+    return false;
+  }
+  // 해시가 난이도에 맞게 0이 들어가지 않은 경우
+  if (!hashMatchesDifficulty(block.hash, block.difficulty)) {
+    console.log("해시가 난이도와 매칭이 안되네요");
+  }
+  return true;
+};
+
+// 블록에 들어있는 해시랑 계산해본 해시랑 일치하는지 검사
+const hashMatchesBlockContent = (block) => {
+  const blockHash = calculateHashForBlock(block);
+  return blockHash === block.hash;
+};
+
+// 찾은 해시값이 난이도에 맞는 해시값인지 검사
+// 찾은 해시값을 2진수로 변환해 난이도만큼 앞에 0으로 채워졌는지 대조하기
+const hashMatchesDifficulty = (hash, difficulty) => {
+  const hashInBinary = hexToBinary(hash);
+  const requiredPrefix = "0".repeat(difficulty);
+  return hashInBinary.startsWith(requiredPrefix);
+};
+
+// 전달받은 블록체인과 그 안의 트랜잭션들을 검증하고 그로부터 만들어낸 공용장부 반환받기
+const isValidChain = (blockchainToValidate) => {
+  // 내 제네시스 블록과 전달받은 블록체인의 제네시스 블록이 같으면 true
+  const isValidGenesis = (block) => {
+    return JSON.stringify(block) === JSON.stringify(genesisBlock);
+  };
+  // 전달받은 블록체인과 내 제네시스 블록 동일한지 검증
+  if (!isValidGenesis(blockchainToValidate[0])) {
+    return null;
+  }
+
+  // 새로 만들 공용장부
+  let aUnspentTxOuts = [];
+
+  // 전달받은 블록체인 길이만큼 돌리기
+  for (let i = 0; i < blockchainToValidate.length; i++) {
+    const currentBlock = blockchainToValidate[i];
+    if (
+      // 블록들 하나하나 순서대로 정상인지 검사
+      i !== 0 &&
+      !isValidNewBlock(blockchainToValidate[i], blockchainToValidate[i - 1])
+    ) {
+      return null;
+    }
+    // 전달받은 블록들의 트랜잭션들 검사해서 공용장부 갱신
+    aUnspentTxOuts = TX.processTransactions(
+      currentBlock.data,
+      aUnspentTxOuts,
+      currentBlock.index
+    );
+    // 공용장부에 들은게 null이면
+    if (aUnspentTxOuts === null) {
+      console.log("블록체인 안에 거래정보(트랜잭션)가 잘못되었네요");
+      return null;
     }
   }
-module.exports= { Block, getBlockchain, getUnspentTxOuts, getLastBlock, sendTransaction, generateRawNextBlock, generateNextBlock, generatenextBlockWithTransaction, handleReceivedTransaction, getMyUnspentTransactionOutputs, getAccountBalance, isValidBlockStructure, replaceChain, addBlockToChain,calculateHash,dbBlockCheck};
+
+  // 전달받은 블록체인으로 만든 공용장부 반환
+  // (체인교체할 때 공용장부도 이 새로만든 공용장부로 바꿀것임)
+  return aUnspentTxOuts;
+};
+
+// 새 블록 블록체인에 추가하기
+const addBlockToChain = (newBlock) => {
+  // 새 블록 검증해서 정상이면
+  if (isValidNewBlock(newBlock, getLatestBlock())) {
+    // (processTransactions)새 블록에 들어갈 트랜잭션들 검증하고
+    // 기존 미사용트랜잭션아웃풋목록(uTxOs/공용장부)에서 새 블록에 담긴 거래들과
+    // 현재 공용장부 정산해서 갱신한 공용장부 retVal변수에 담기
+    const retVal = TX.processTransactions(
+      newBlock.data,
+      getUnspentTxOuts(),
+      newBlock.index
+    );
+    // 새블록에 들어갈 공용장부가 null 이면
+    if (retVal === null) {
+      console.log("블록 추가하려고 했는데 트랜잭션쪽에 뭔가 문제가 있어요");
+      return false;
+      // 이상 없으면 블록체인에 새블록 추가하고
+      // 내가 가진 기존 공용장부 갱신한 공용장부로 최신화
+      // 최신화된 공용장부로 트랜잭션풀 갱신
+    } else {
+      blockchain.push(newBlock);
+      setUnspentTxOuts(retVal);
+      TP.updateTransactionPool(unspentTxOuts);
+      return true;
+    }
+  }
+  return false;
+};
+
+// 블록체인 교체하기
+const replaceChain = (newBlocks) => {
+  // 전달받은 블록체인, 그안의 트랜잭션들 검증 후
+  // 그것들로 만든 공용장부를 aUnspentTxOuts변수에 저장
+  const aUnspentTxOuts = isValidChain(newBlocks);
+
+  // 공용장부 상태가 null 이 아닌지 확인용 변수validChain (true/false)
+  const validChain = aUnspentTxOuts !== null;
+
+  // 공용장부가 비어있지 않고 && 전달받은 블록체인의 누적난이도가
+  // 내가 가진 블록체인의 누적난이도보다 높으면
+  if (
+    validChain &&
+    getAccumulatedDifficulty(newBlocks) >
+      getAccumulatedDifficulty(getBlockchain())
+  ) {
+    console.log("전달받은 블록체인으로 교체했어요!");
+    // 내 블록체인을 전달받은 블록체인으로 샤샥 교체
+    // 공용장부도 전달받은 블록체인으로부터 만든 공용장부로 교체
+    // 새 공용장부로 트랜잭션풀 갱신
+    // 최신화된 블록체인의 마지막 블록 소문내기
+    blockchain = newBlocks;
+    setUnspentTxOuts(aUnspentTxOuts);
+    TP.updateTransactionPool(unspentTxOuts);
+    P2P.broadcastLatest();
+  } else {
+    console.log(
+      "전달받은 블록체인보다 내 블록체인의 누적 난이도가 높으니 내 블록체인을 그대로 유지합니다"
+    );
+  }
+};
+// 받은 트랜잭션풀에서 트랜잭션 하나씩 검증해서 내 트랜잭션풀에 넣기
+const handleReceivedTransaction = (transaction) => {
+  TP.addToTransactionPool(transaction, getUnspentTxOuts());
+};
+
+module.exports = {
+  Block,
+  getBlockchain,
+  getUnspentTxOuts,
+  getLatestBlock,
+  sendTransaction,
+  generateRawNextBlock,
+  generateNextBlock,
+  generatenextBlockWithTransaction,
+  handleReceivedTransaction,
+  getMyUnspentTransactionOutputs,
+  getAccountBalance,
+  isValidBlockStructure,
+  replaceChain,
+  addBlockToChain,
+};
