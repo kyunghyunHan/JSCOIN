@@ -91,9 +91,9 @@ function Port1() {
   };
   const mineTransaction = async () => {
     if (Money <= 0) {
-      alert("송금액이 잘못되었어요");
+      alert("송급 error");
     } else if (MoneyToAddress.length !== 130) {
-      alert("주소가 잘못되었어요 똑바로 좀 하세요");
+      alert("주소가 잘못되었어요");
     } else {
       await axios
         .post(`http://localhost:3001/mineTransaction`, {
@@ -102,7 +102,7 @@ function Port1() {
         })
         .then((res) => {
           console.log(res.data);
-          alert("치사하게 채굴하였어요");
+          alert("자기채굴");
         });
     }
   };
@@ -142,7 +142,7 @@ function Port1() {
   const addPeer = async () => {
     const P = peer;
     if (P.length === 0) {
-      return alert(`peer내용을 넣어주세용`);
+      return alert(`peer주소입력`);
     }
     await axios
       .post(`http://localhost:3001/addPeer`, {
@@ -305,7 +305,7 @@ function Port1() {
         style={{ marginLeft: 30 }}
         type="dashed"
         onClick={() => {
-          alert("채굴을 시작합니당.");
+          alert("채굴 start");
           setIsRunning(true); setOk(true);
         }}
       >
@@ -315,7 +315,7 @@ function Port1() {
         style={{ marginLeft: 30 }}
         type="dashed"
         onClick={() => {
-          alert("채굴을 중지합니당.");
+          alert("채굴 stop.");
           setOk(false);
         }}
       >
