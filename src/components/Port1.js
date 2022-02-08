@@ -5,7 +5,7 @@ import ButtonGroup from '@mui/material/ButtonGroup';
 import Button from '@mui/material/Button';
 import nine from "../images/9.png";
 
-function Port2() {
+function Port1() {
   const [blockData, setBlockData] = useState("");
   const [peer, setPeer] = useState("");
   const [peers, setPeers] = useState(" ");
@@ -166,7 +166,12 @@ function Port2() {
   function handleSendAmount(e) {
     setSendAmount(e.target.value);
   }
-
+  const toggleBlockInfo = (block) => {
+    setshownBlock((shownBlockInfo) => ({
+      ...shownBlockInfo,
+      [block.index]: !shownBlockInfo[block.index],
+    }));
+  };
 
 
   function handleDelayChange(e) {
@@ -317,84 +322,131 @@ function Port2() {
         중지
       </Button>
       </ButtonGroup>
-      {reverse.map((a) => {
-        console.log(a)
-        console.log(reverse)
+      {reverse.map((blockData) => {
         return (
-          <ul key={JSON.stringify(a.index)}>
+          <ul key={blockData.index}>
             <div
               onClick={() => {
-                toggleComment(a);
+                toggleBlockInfo(blockData);
               }}
             >
+              <div text="Block Chain">
+                <Card size="small" className="block_box">
+                  <div>{blockData.index}번 블록</div>
+                </Card>
+              </div>
             </div>
-            <Col span={23}>
-              <Row justify="end">
-                <Col span={23}>
-                  <Card
-                    size="small"
-                    className="block_box-block_info"
-                  >
-                    <li>
-                      <div>
-                        <strong>고유 번호</strong>
-                      </div>
-                      <div>{a.index}  ({a.index + 1}번째 블록)</div>
-                 
-                    </li>
-                    <hr className="boundary_line"></hr>
-                    <li>
-                      <div>
-                        <strong>해시값</strong>
-                      </div>
-                      <div>{JSON.stringify(a.hash)}</div>
-                    </li>
-                    <hr className="boundary_line"></hr>
-                    <li>
-                      <div>
-                        <strong>이전 해시값</strong>
-                      </div>
-                      <div>{a.previousHash}</div>
-                    </li>
-                    <hr className="boundary_line"></hr>
-                    <li>
-                      <div>
-                        <strong>블록 생성 시각</strong>
-                      </div>
-                      <div>{a.timestamp}</div>
-                    </li>
-                    <hr className="boundary_line"></hr>
-                    <li>
-                      <div>
-                        <strong>머클루트</strong>
-                      </div>
-                      <div>{a.merkleRoot}</div>
-                    </li>
-                    <hr className="boundary_line"></hr>
-                    <li>
-                      <div>
-                        <strong>난이도</strong>
-                      </div>
-                      <div>{a.difficulty}</div>
-                    </li>
-                    <hr className="boundary_line"></hr>
-                    <li>
-                      <div>
-                        <strong>넌스</strong>
-                      </div>
-                      <div>{JSON.stringify(a.nonce)}</div>
-                    </li>
-                    <hr className="boundary_line"></hr>
-                    <li>
-                      <div>
-                        <strong>담긴 데이터</strong>
-                      </div>
-                      <div>{a.body}</div>
-                    </li>
-                  </Card>
-                </Col>
-              </Row>
-            </Col>
+
+            {shownBlock[blockData.index] ? (
+              <Col span={23}>
+                <Row justify="end">
+                  <Col span={23}>
+                    <Card
+                      size="small"
+                      title="정보"
+                      className="block_box-block_info"
+                    >
+                      <li>
+                        <div>
+                          <div>고유 번호</div>
+                        </div>
+                        <div>{blockData.index}</div>
+                      </li>
+                      <hr className="boundary_line"></hr>
+                      <li>
+                        <div>
+                          <div>이전해시값</div>
+                        </div>
+                        <div>{blockData.previousHash}</div>
+                      </li>
+                      <hr className="boundary_line"></hr>
+                      <li>
+                        <div>
+                          <div>시간</div>
+                        </div>
+                        <div>{blockData.timestamp}</div>
+                      </li>
+                      <hr className="boundary_line"></hr>
+                      <li>
+                        <div>
+                          <div>해시</div>
+                        </div>
+                        <div>{blockData.hash}</div>
+                      </li>
+                      <hr className="boundary_line"></hr>
+                      <li>
+                        <div>
+                          <div>난이도</div>
+                        </div>
+                        <div>{blockData.difficulty}</div>
+                      </li>
+                      <hr className="boundary_line"></hr>
+                      <li>
+                        <div>
+                          <div>넌스</div>
+                        </div>
+                        <div>{blockData.nonce}</div>
+                      </li>
+                      <hr className="boundary_line"></hr>
+                      <div className="Transaction-title">Transactions</div>
+                      {blockData.data.map((transaction) => {
+                        return (
+                          <div
+                            className="Transaction-content"
+                            key={transaction.id}
+                          >
+                            <div className="Transaction-content_box">
+                              <div className="Transaction-content_info_id">
+                                <div>Id</div>
+                                <div>{transaction.id}</div>
+                              </div>
+                              {transaction.txIns.map((txIn) => {
+                                return (
+                                  <div
+                                    className="Transaction-content_info"
+                                    key={txIn.signature}
+                                  >
+                                    <div className="Transaction-content_info_txIn">
+                                      <div>signature</div>
+                                      <div>{txIn.signature}</div>
+                                    </div>
+                                    <div className="Transaction-content_info_txIn">
+                                      <div>txOutId</div>
+                                      <div>{txIn.txOutId}</div>
+                                    </div>
+                                    <div className="Transaction-content_info_txIn">
+                                      <div>txOutIndex</div>
+                                      <div>{txIn.txOutIndex}</div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {transaction.txOuts.map((txOut, index) => {
+                                return (
+                                  <div
+                                    className="Transaction-content_info"
+                                    key={index}
+                                  >
+                                    <div className="Transaction-content_info_txOut">
+                                      <div>주소</div>
+                                      <div>{txOut.address}</div>
+                                    </div>
+                                    <div className="Transaction-content_info_txOut">
+                                      <div>amount</div>
+                                      <div>{txOut.amount}</div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </Card>
+                  </Col>
+                </Row>
+              </Col>
+            ) : null}
           </ul>
         );
       })}
@@ -419,4 +471,4 @@ function useInterval(callback, delay) {
   }, [delay]);
 }
 
-export default Port2;
+export default Port1;
