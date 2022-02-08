@@ -93,7 +93,7 @@ const getUnspentTxOuts = () => _.cloneDeep(unspentTxOuts);
 // 새로만들거나 받은 미사용 트랜잭션 목록(공용장부)로  교체
 const setUnspentTxOuts = (newUnspentTxOut) => {
   unspentTxOuts = newUnspentTxOut;
-  console.log("공용장부(unspentTxouts)를 최신화합니다");
+  console.log("채굴합니다");
 };
 
 // 내 마지막 블록 가져오기
@@ -278,7 +278,7 @@ const sendTransaction = (address, amount) => {
   TP.addToTransactionPool(tx, getUnspentTxOuts());
   // 그 트랜잭션풀 방방곡곡 소문내기
   P2P.broadCastTransactionPool();
-  console.log("트랜잭션을 소문낼게요");
+  console.log("트랜잭션 공용");
   return tx;
 };
 

@@ -198,12 +198,16 @@ function Port2() {
       <div>포트번호</div>
       <Input
         
-          placeholder=" ex)6002 "
+          placeholder="6002 "
           onChange={(e) => {
             setPeer(e.target.value);
           }}
           value={peer}
         />
+            <p>
+        {" "}
+        <b style={{ marginLeft: 10 }}></b> {peers}
+      </p>
       <ButtonGroup disableElevation color="error" variant="contained" size="medium">
       <Button style={{ marginTop: 5 }} type="dashed" onClick={addPeer}>
         피어연결
@@ -215,14 +219,12 @@ function Port2() {
       트랜잭션풀이
       </Button> */}
       {/* <div>{transactionPool}</div> */}
-      <Button style={{ marginTop: 5 }} type="dashed" onClick={mineTransaction}>
-       자기트랜잭션
-      </Button>
+     
       </ButtonGroup>
 
     
       <hr className="boundary_line"></hr>
-     트랜잭션{transactionPool.length}개
+    {transactionPool.length} 트랜잭션
       <div className="pool_box">
         {transactionPool
           ? transactionPool.map((txPool) => {
@@ -231,10 +233,7 @@ function Port2() {
           : null}
        
       </div>
-      <p>
-        {" "}
-        <b style={{ marginLeft: 10 }}></b> {peers}
-      </p>
+  
       <br />
       <div className="tx_entry">
         <Col span={3}>
@@ -270,6 +269,9 @@ function Port2() {
               return <div className="pool_box-effect">⁽⁽◝(˙꒳˙)◜⁾⁾</div>;
             })
           : null} */}
+           <Button style={{ marginTop: 5 }} type="dashed" onClick={mineTransaction}>
+       자기트랜잭션
+      </Button>
       </ButtonGroup>
 
       <br />
@@ -284,20 +286,40 @@ function Port2() {
         value={blockData}
       />
       <ButtonGroup disableElevation color="error" variant="contained" size="medium">
-        <Button
-          variant="contained"
-          size="large"
-          style={{ marginTop: 5, marginBottom: 10 }}
-          type=""
-          onClick={bcMaker}
-        >
-          블록 채굴
-        </Button>
-        <Button variant="outlined" color="warning" size="large" style={{ marginTop: 5, marginBottom: 10 }} type="dash" onClick={connect}>
-          블록체인 보기
-        </Button>
+      <Button
+        style={{ marginTop: 5, marginBottom: 10 }}
+        type="dashed"
+        onClick={bcMaker}
+      >
+        블록채굴
+      </Button>
+      <Button style={{ marginLeft: 30 }} type="dashed" onClick={connect}>
+        블록체인 목록 불러오기
+      </Button>
+      <Button
+        style={{ marginLeft: 30 }}
+        type="dashed"
+        onClick={() => {
+          alert("채굴을 시작합니당.");
+          setIsRunning(true); setOk(true);
+        }}
+      >
+        채굴
+      </Button>
+      <Button
+        style={{ marginLeft: 30 }}
+        type="dashed"
+        onClick={() => {
+          alert("채굴을 중지합니당.");
+          setOk(false);
+        }}
+      >
+        중지
+      </Button>
       </ButtonGroup>
       {reverse.map((a) => {
+        console.log(a)
+        console.log(reverse)
         return (
           <ul key={JSON.stringify(a.index)}>
             <div
